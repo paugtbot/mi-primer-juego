@@ -1,5 +1,7 @@
 # 🤪 LOCURA TOTAL
 
+![Portada de LOCURA TOTAL](imagenes/portada.jpg)
+
 **Un juego de fiesta para Roblox, para 8 jugadores. TODO en un solo script.**
 17 minijuegos · 12 modos locos · 0 piedad.
 
@@ -35,6 +37,9 @@ Pestaña **Test** → *Clients and Servers* → **Local Server** con **8 Players
 **Start**. Se abre una ventana por jugador (si tu ordenador sufre, prueba con 2 o 3).
 
 ### 🌍 Jugar con tus amigos
+
+> 🖼️ El título, la descripción, la portada y el icono para la página del juego
+> están en [`PUBLICAR.md`](PUBLICAR.md).
 
 1. *File* → **Publish to Roblox** (crea una experiencia nueva, por ejemplo "LOCURA TOTAL").
 2. **Pon el servidor a 8 jugadores**: en *Game Settings* (o en
