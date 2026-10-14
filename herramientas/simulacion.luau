@@ -225,6 +225,42 @@ metodo("Instance", "WaitForChild", function(self, nombre, limite)
 	end
 end)
 
+-- Terreno: Lune no tiene vóxeles. Cada relleno sólido se convierte en una
+-- parte invisible (su caja) para que los bots puedan pisarlo. El agua no.
+if not workspace:FindFirstChildOfClass("Terrain") then
+	local terreno = Instance.new("Terrain")
+	terreno.Name = "Terrain"
+	terreno.Parent = workspace
+end
+local carpetaTerreno = Instance.new("Folder")
+carpetaTerreno.Name = "TerrenoSimulado"
+carpetaTerreno.Parent = workspace
+local function bloqueTerreno(cf, tamano, material)
+	if material == Enum.Material.Water or material == Enum.Material.Air then
+		return
+	end
+	local parte = Instance.new("Part")
+	parte.Name = "Terreno"
+	parte.Anchored = true
+	parte.CanTouch = false
+	parte.Transparency = 1
+	parte.CFrame = cf
+	parte.Size = tamano
+	parte.Parent = carpetaTerreno
+end
+metodo("Terrain", "FillBlock", function(_self, cf, tamano, material)
+	bloqueTerreno(cf, tamano, material)
+end)
+metodo("Terrain", "FillWedge", function(_self, cf, tamano, material)
+	bloqueTerreno(cf, tamano, material)
+end)
+metodo("Terrain", "FillBall", function(_self, centro, radio, material)
+	bloqueTerreno(CFrame.new(centro), Vector3.new(radio * 2, radio * 2, radio * 2), material)
+end)
+metodo("Terrain", "FillCylinder", function(_self, cf, alto, radio, material)
+	bloqueTerreno(cf, Vector3.new(radio * 2, alto, radio * 2), material)
+end)
+
 metodo("Model", "GetPivot", function(self)
 	local raiz = self.PrimaryPart or self:FindFirstChild("HumanoidRootPart")
 	if raiz then
@@ -737,6 +773,7 @@ local entorno = {
 	ColorSequence = roblox.ColorSequence,
 	ColorSequenceKeypoint = roblox.ColorSequenceKeypoint,
 	NumberSequence = roblox.NumberSequence,
+	NumberSequenceKeypoint = roblox.NumberSequenceKeypoint,
 	NumberRange = roblox.NumberRange,
 	PhysicalProperties = roblox.PhysicalProperties,
 	TweenInfo = TweenInfoFalso,
@@ -800,6 +837,7 @@ assert(workspace:FindFirstChild("Lobby"), "No se construyó el lobby")
 assert(workspace:FindFirstChild("Grada"), "No se construyó la grada")
 anotarEstaticas(workspace.Lobby)
 anotarEstaticas(workspace.Grada)
+anotarEstaticas(carpetaTerreno)
 print(string.format("🏝️ Lobby: %d objetos · 👀 Grada: %d objetos", #workspace.Lobby:GetDescendants(), #workspace.Grada:GetDescendants()))
 
 -- 9 jugadores: el noveno debería ser expulsado (máximo 8).

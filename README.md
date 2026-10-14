@@ -22,12 +22,12 @@ victorias y tu **nivel** se guardan para siempre.
    Script, borrando lo que traía (`print("Hello world!")`).
 4. Pulsa **▶ Play**. ¡Ya está!
 
-En Studio puedes jugar solo para probar (las votaciones duran menos). El
-lobby, la grada y los minijuegos se construyen solos al darle a Play.
+En Studio puedes jugar solo para probar (las votaciones duran menos). Todo el
+mundo (mar, montañas, islas, lobby, estadio, grada y minijuegos) se construye
+solo al darle a Play.
 
 > 💡 Otra opción: descarga [`LocuraTotal.rbxlx`](LocuraTotal.rbxlx) y ábrelo con
-> *File → Open from File*. Trae el mismo script y el lobby ya construido, así
-> lo ves (y lo puedes decorar) antes de darle a Play.
+> *File → Open from File*. Trae el mismo script ya puesto en su sitio.
 
 ### 👥 Probarlo con 8 jugadores en tu ordenador
 
@@ -73,15 +73,36 @@ Pestaña **Test** → *Clients and Servers* → **Local Server** con **8 Players
 🦘 Súper Salto · 🪩 Noche Disco · 🌫️ Niebla Total · 👻 Modo Fantasma ·
 🧊 Todo es Hielo · 🔄 Gravedad Loca · 🌀 **CAOS TOTAL** (¡2 o 3 a la vez!)
 
+## 🌅 Lo visual
+
+- **Atardecer dorado** con neblina rosa, rayos de sol, brillo (*bloom*), nubes
+  de verdad y un **mar turquesa** rodeado de **montañas nevadas**.
+- **Islas flotantes** de roca con árboles de chuchería por todo el cielo.
+- **Lobby en una isla**: plaza con **fuente**, pista de baile circular con bola
+  de discoteca, **arcoíris gigante** sobre las plataformas de votación, cartel
+  con bombillas de feria que parpadean, farolas con **guirnaldas de luces**,
+  flores, globos, **4 cascadas** que caen al mar y lucecitas mágicas flotando.
+- **Estadio de neón** alrededor de los minijuegos: dos anillos arcoíris
+  gigantes, 4 torres de luz con focos al cielo y **2 pantallas gigantes** que
+  dicen qué se juega y quién gana. ¡Y fuegos artificiales al empezar!
+- Cada arena lleva **columnas con luces, banderines y brillitos**; la lava
+  suelta **brasas**.
+- Durante las rondas dejas una **estela de tu color**, al caer haces **¡puf!**
+  y al aparecer sueltas brillitos.
+- **Interfaz** con tarjeta de presentación de cada minijuego, **telón** de
+  colores entre el lobby y la arena, **barra de tiempo**, panel de votos con
+  barras, resultados con colores de podio, cuenta atrás de colores y destellos
+  de pantalla (rojo si te eliminan, dorado si ganas).
+
 ## ✨ Y además…
 
 - **❓ Cajas sorpresa** en muchos minijuegos: ⚡ turbo, 🦘 súper muelle, 🛡️ escudo,
   💥 onda expansiva y 🎈 globo.
 - **🔨 Martillo Loco** para mandar a volar a los demás (y si alguien se cae por tu
   culpa, ¡te llevas el mérito!).
-- **🏝️ Lobby** con pista de baile, bola de discoteca, trampolines, un 🚀 cañón
-  humano que lleva a una **isla secreta** y un **🔴 botón rojo "NO PULSAR"**
-  con 6 sorpresas (despegue, lluvia de pelotas, todos mini, tornado…).
+- **🏝️ Lobby** con trampolines, un 🚀 cañón humano que lleva a una **isla
+  secreta** y un **🔴 botón rojo "NO PULSAR"** con 6 sorpresas (despegue,
+  lluvia de pelotas, todos mini, tornado…).
 - **👀 Grada de espectadores**: si te eliminan, ves el resto de la ronda en directo.
 - **🏅 Premios al final de cada partida**: Rey del Martillo, Terminator, Piloto
   de Pruebas y Cazacajas.
@@ -98,6 +119,8 @@ sección **⚙️ CONFIGURACIÓN**:
 - `RONDAS_POR_PARTIDA = 6`, `TIEMPO_VOTACION = 15`, `PUNTOS_POR_PUESTO`…
 - `CAJAS_SORPRESA = true` (pon `false` para quitarlas), `ULTIMA_RONDA_DOBLE`…
 - Los colores, la velocidad y el salto normales.
+- ¿Prefieres jugar de noche? Busca `Lighting.ClockTime = 16.4` (en
+  `Paisaje.Luces`) y pon `0`. ¡Con `12` es mediodía!
 
 Más ideas:
 
@@ -125,11 +148,11 @@ sh herramientas/construir.sh      # construye LocuraTotal.rbxlx y lo prueba
   usar `rojo serve` y editar `LocuraTotal.server.luau` con VS Code.
 - Todo funciona desde el servidor (interfaz incluida), por eso cabe en un único
   `Script`. Los empujones usan una `LinearVelocity` corta dentro del personaje.
-- `herramientas/construir.luau` mete el lobby y la grada ya construidos en el `.rbxlx`.
 - `herramientas/simulacion.luau` ejecuta el script **real** con
   [Lune](https://lune-org.github.io/docs): 8 bots con física simplificada y el
   tiempo acelerado juegan una partida entera. Votan, pulsan el botón rojo, cogen
   cajas, usan el martillo, uno se va a mitad y un 9º intenta entrar. Al final
-  comprueba que no haya ningún error.
+  comprueba que no haya ningún error. (El terreno se simula con cajas
+  invisibles, porque Lune no tiene vóxeles.)
 - El script pasa el comprobador de tipos de Luau en modo `--!strict` con las
   definiciones oficiales de la API de Roblox (luau-lsp).
