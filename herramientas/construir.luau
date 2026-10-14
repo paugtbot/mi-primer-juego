@@ -1,9 +1,9 @@
 --!nocheck
 -- 🏗️ CONSTRUIR EL ARCHIVO DEL JUEGO (herramienta para desarrolladores)
 --
--- Mete el lobby ya construido dentro de LocuraTotal.rbxlx. Así, al abrir el
--- archivo en Roblox Studio, se ve la isla (y se puede editar a mano). El juego
--- usa el lobby que encuentre en el archivo; si no hay, lo construye él solo.
+-- Mete el lobby y la grada ya construidos dentro de LocuraTotal.rbxlx. Así, al
+-- abrir el archivo en Roblox Studio, se ve la isla (y se puede editar a mano).
+-- El script usa el lobby que encuentre en el juego; si no hay, lo construye él.
 --
 -- Uso (desde la carpeta del proyecto):
 --   rojo build default.project.json -o LocuraTotal.rbxlx
@@ -25,15 +25,33 @@ end
 
 local game = roblox.deserializePlace(fs.readFile(ruta))
 local workspace = game:GetService("Workspace")
-
 if workspace:FindFirstChild("Lobby") then
 	print("El archivo ya tiene un lobby; no hago nada.")
 	process.exit(0)
 end
 
-local base = {
+local script = game:GetService("ServerScriptService"):FindFirstChild("LocuraTotal")
+assert(script, "No encuentro ServerScriptService.LocuraTotal")
+
+-- Cargamos el script SIN arrancar el juego: cortamos en "¡ARRANCAMOS!" y
+-- devolvemos las partes que construyen el mundo.
+local fuente = script.Source
+local corte = string.find(fuente, "-- 🚀 ¡ARRANCAMOS!", 1, true)
+assert(corte, "No encuentro la sección de arranque en el script")
+fuente = string.sub(fuente, 1, corte - 1) .. "\nreturn { Lobby = Lobby, Grada = Grada }\n"
+
+-- Lune no calcula BasePart.Position a partir de CFrame: cambiamos sus lecturas.
+fuente = string.gsub(fuente, "([%a_][%w_%.]*)%.Position(%s*=?=?)", function(receptor, sufijo)
+	if string.match(sufijo, "^%s*=$") then
+		return nil -- es una asignación: se deja igual
+	end
+	return "__posicion(" .. receptor .. ")" .. sufijo
+end)
+
+local entorno = {
 	game = game,
 	workspace = workspace,
+	script = script,
 	Instance = roblox.Instance,
 	Vector3 = roblox.Vector3,
 	Vector2 = roblox.Vector2,
@@ -48,13 +66,18 @@ local base = {
 	NumberSequence = roblox.NumberSequence,
 	NumberRange = roblox.NumberRange,
 	PhysicalProperties = roblox.PhysicalProperties,
+	TweenInfo = { new = function() return {} end },
+	OverlapParams = { new = function() return {} end },
+	RaycastParams = { new = function() return {} end },
 	task = task,
+	os = os,
 	math = math,
 	string = string,
 	table = table,
 	print = print,
 	warn = print,
 	error = error,
+	assert = assert,
 	pcall = pcall,
 	select = select,
 	type = type,
@@ -65,26 +88,21 @@ local base = {
 	ipairs = ipairs,
 	pairs = pairs,
 	next = next,
+	__posicion = function(x)
+		if typeof(x) == "Instance" and x:IsA("BasePart") then
+			return x.CFrame.Position
+		end
+		return x.Position
+	end,
 }
 
-local cache = {}
-local function requerir(modulo)
-	local clave = modulo:GetFullName()
-	if cache[clave] == nil then
-		local entorno = table.clone(base)
-		entorno.script = modulo
-		entorno.require = requerir
-		cache[clave] = luau.load(modulo.Source, { debugName = clave, environment = entorno })()
-	end
-	return cache[clave]
-end
-
 math.randomseed(8) -- siempre el mismo lobby
-local servidor = game:GetService("ServerScriptService"):FindFirstChild("Servidor")
-local Lobby = requerir(servidor:FindFirstChild("Lobby"))
-Lobby.Construir()
+local mundo = luau.load(fuente, { debugName = "LocuraTotal", environment = entorno })()
+mundo.Lobby.Construir()
+mundo.Grada.Construir()
 
 local lobby = workspace:FindFirstChild("Lobby")
-assert(lobby, "No se construyó el lobby")
+local grada = workspace:FindFirstChild("Grada")
+assert(lobby and grada, "No se construyó el mundo")
 fs.writeFile(ruta, roblox.serializePlace(game, true)) -- true = formato XML (.rbxlx)
-print(string.format("✅ Lobby metido en %s (%d objetos)", ruta, #lobby:GetDescendants()))
+print(string.format("✅ Lobby (%d objetos) y grada (%d) metidos en %s", #lobby:GetDescendants(), #grada:GetDescendants(), ruta))

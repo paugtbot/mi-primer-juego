@@ -1,16 +1,14 @@
 --!nocheck
 -- 🧪 SIMULACIÓN DE LOCURA TOTAL (herramienta para desarrolladores)
 --
--- Ejecuta el código REAL del juego (servidor + cliente) fuera de Roblox usando
--- Lune, con 8 bots, una física muy simplificada (gravedad, suelos, paredes,
--- empujones) y el tiempo acelerado. Sirve para encontrar errores sin abrir
--- Roblox Studio: si algo del juego falla, aquí sale en rojo.
+-- Ejecuta el script REAL del juego fuera de Roblox usando Lune, con 8 bots,
+-- una física muy simplificada (gravedad, suelos, paredes, empujones) y el
+-- tiempo acelerado. Los bots votan, pulsan el botón rojo, cogen cajas, usan
+-- el martillo... y se comprueba que no salte ningún error.
 --
 -- Uso (desde la carpeta del proyecto):
 --   rojo build default.project.json -o LocuraTotal.rbxlx
---   lune run herramientas/simulacion.luau            -- velocidad x25
---   lune run herramientas/simulacion.luau 40         -- velocidad x40
---   lune run herramientas/simulacion.luau 25 otro.rbxlx  -- probar otro archivo
+--   lune run herramientas/simulacion.luau [velocidad] [archivo.rbxlx] [rondas]
 --
 -- No hace falta para jugar: solo es para probar el código.
 
@@ -26,8 +24,13 @@ local CFrame = roblox.CFrame
 local Enum = roblox.Enum
 
 local ACELERACION = tonumber(process.args[1]) or 25
-local LIMITE_VIRTUAL = 2400 -- segundos de juego como máximo
-local NOMBRES_BOTS = { "Pepito", "Lola", "Toni", "Marta", "Kiko", "Nuria", "Paco", "Sara" }
+local RUTA = process.args[2] or "LocuraTotal.rbxlx"
+local RONDAS = tonumber(process.args[3]) or 13
+local LIMITE_VIRTUAL = 4000
+local NOMBRES_BOTS = { "Pepito", "Lola", "Toni", "Marta", "Kiko", "Nuria", "Paco", "Sara", "Intruso" }
+local ARENA = Vector3.new(0, 120, 420)
+local GRADA = Vector3.new(-100, 162, 420)
+local LOBBY = Vector3.new(0, 50, 0)
 
 -- ===================================================================
 -- Registro de errores
@@ -40,9 +43,7 @@ local registro: { string } = {}
 
 local function lineaDelJuego(texto: string): string
 	for linea in string.gmatch(texto, "[^\n]+") do
-		local encontrado = string.match(linea, "(%a+Service%.[%w%.]+[^\n]-:%d+)")
-			or string.match(linea, "(StarterPlayer%.[%w%.]+[^\n]-:%d+)")
-			or string.match(linea, "(ReplicatedStorage%.[%w%.]+[^\n]-:%d+)")
+		local encontrado = string.match(linea, "(LocuraTotal[^\n]-:%d+)")
 		if encontrado then
 			return encontrado
 		end
@@ -76,7 +77,7 @@ local function conRastro(err: any): string
 	return tostring(err) .. "\n" .. (if ok then tostring(rastro) else "")
 end
 
-local function proteger(funcion, ...)
+local function proteger(funcion)
 	return function(...)
 		local ok, err = xpcall(funcion, conRastro, ...)
 		if not ok then
@@ -154,7 +155,8 @@ local function nuevaSenal()
 	return senal
 end
 
-local senales = setmetatable({}, { __mode = "k" })
+-- Tabla normal (no débil): si Lune borrara la entrada, se perderían las conexiones.
+local senales = {}
 local function senalDe(objeto, nombre: string)
 	local tabla = senales[objeto]
 	if not tabla then
@@ -176,11 +178,8 @@ for _, par in {
 	{ "Players", "PlayerAdded" },
 	{ "Players", "PlayerRemoving" },
 	{ "RunService", "Heartbeat" },
-	{ "RunService", "RenderStepped" },
 	{ "Tool", "Activated" },
-	{ "GuiButton", "Activated" },
-	{ "RemoteEvent", "OnClientEvent" },
-	{ "RemoteEvent", "OnServerEvent" },
+	{ "ProximityPrompt", "Triggered" },
 } do
 	roblox.implementProperty(par[1], par[2], function(self)
 		return senalDe(self, par[2])
@@ -191,19 +190,15 @@ end
 -- Cargar el juego
 -- ===================================================================
 
-local ruta = process.args[2] or "LocuraTotal.rbxlx"
-if not fs.isFile(ruta) then
-	print("No encuentro " .. ruta .. ". Ejecuta primero: rojo build default.project.json -o LocuraTotal.rbxlx")
+if not fs.isFile(RUTA) then
+	print("No encuentro " .. RUTA .. ". Ejecuta primero: rojo build default.project.json -o LocuraTotal.rbxlx")
 	process.exit(1)
 end
-local game = roblox.deserializePlace(fs.readFile(ruta))
+local game = roblox.deserializePlace(fs.readFile(RUTA))
 local workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
-local camara = Instance.new("Camera")
-camara.Parent = workspace
-workspace.CurrentCamera = camara
+local CollectionService = game:GetService("CollectionService")
 
-local jugadorLocal = nil
 local bots: { [any]: any } = {} -- estado de física de cada bot
 
 -- ===================================================================
@@ -211,7 +206,6 @@ local bots: { [any]: any } = {} -- estado de física de cada bot
 -- ===================================================================
 
 local metodo = roblox.implementMethod
-
 
 metodo("Instance", "WaitForChild", function(self, nombre, limite)
 	local fin = reloj() + (limite or 5)
@@ -249,9 +243,11 @@ end)
 metodo("Model", "ScaleTo", function(self, escala)
 	self:SetAttribute("EscalaSimulada", escala)
 end)
+metodo("Model", "GetScale", function(self)
+	return self:GetAttribute("EscalaSimulada") or 1
+end)
 
 -- Avisa de las partes con etiquetas nuevas (como GetInstanceAddedSignal).
-local CollectionService = game:GetService("CollectionService")
 local etiquetadosVistos = setmetatable({}, { __mode = "k" })
 local function avisarEtiquetasNuevas()
 	for _, d in workspace:GetDescendants() do
@@ -275,13 +271,9 @@ end)
 metodo("CollectionService", "GetInstanceAddedSignal", function(self, etiqueta)
 	return senalDe(self, "Agregado_" .. etiqueta)
 end)
-metodo("CollectionService", "GetInstanceRemovedSignal", function(self, etiqueta)
-	return senalDe(self, "Quitado_" .. etiqueta)
-end)
 
 metodo("TweenService", "Create", function(_self, objeto, info, propiedades)
 	for clave in propiedades do
-		-- Falla si la propiedad no existe (como en Roblox).
 		local ok, err = pcall(function()
 			return objeto[clave]
 		end)
@@ -321,7 +313,6 @@ metodo("RunService", "IsStudio", function()
 end)
 metodo("DataModel", "BindToClose", function() end)
 metodo("Sound", "Play", function() end)
-metodo("ParticleEmitter", "Emit", function() end)
 metodo("BasePart", "SetNetworkOwner", function(self)
 	if self.Anchored then
 		error("Network Ownership API cannot be called on Anchored parts")
@@ -330,7 +321,6 @@ end)
 metodo("Humanoid", "EquipTool", function(self, herramienta)
 	herramienta.Parent = self.Parent
 end)
-metodo("Humanoid", "ChangeState", function() end)
 
 metodo("Players", "GetPlayers", function(self)
 	local lista = {}
@@ -348,17 +338,6 @@ metodo("Players", "GetPlayerFromCharacter", function(self, modelo)
 		end
 	end
 	return nil
-end)
-metodo("Players", "GetPlayerByUserId", function(self, id)
-	for _, hijo in self:GetChildren() do
-		if hijo:IsA("Player") and hijo.UserId == id then
-			return hijo
-		end
-	end
-	return nil
-end)
-roblox.implementProperty("Players", "LocalPlayer", function()
-	return jugadorLocal
 end)
 
 local expulsados: { string } = {}
@@ -383,12 +362,18 @@ local function crearPersonaje(jugador)
 	raiz.Name = "HumanoidRootPart"
 	raiz.Size = Vector3.new(2, 2, 1)
 	raiz.Transparency = 1
+	raiz.Anchored = false
+	raiz.AssemblyLinearVelocity = Vector3.zero
 	raiz.Parent = modelo
 	local cabeza = Instance.new("Part")
 	cabeza.Name = "Head"
 	cabeza.Size = Vector3.new(2, 1, 1)
 	cabeza.CFrame = CFrame.new(0, 1.5, 0)
+	cabeza.Transparency = 0
 	cabeza.Parent = modelo
+	local cara = Instance.new("Decal")
+	cara.Name = "face"
+	cara.Parent = cabeza
 	local humanoide = Instance.new("Humanoid")
 	humanoide.MaxHealth = 100
 	humanoide.Health = 100
@@ -397,13 +382,11 @@ local function crearPersonaje(jugador)
 	humanoide.UseJumpPower = true
 	humanoide.PlatformStand = false
 	humanoide.Parent = modelo
-	raiz.AssemblyLinearVelocity = Vector3.zero
-	raiz.Anchored = false
 	modelo.PrimaryPart = raiz
 
 	local spawns = {}
 	for _, d in workspace:GetDescendants() do
-		if d:IsA("SpawnLocation") then
+		if d:IsA("SpawnLocation") and d.Enabled then
 			table.insert(spawns, d)
 		end
 	end
@@ -411,17 +394,16 @@ local function crearPersonaje(jugador)
 	modelo:PivotTo(spawn.CFrame + Vector3.new(0, 3.5, 0))
 	modelo.Parent = workspace
 	jugador.Character = modelo
-	bots[jugador] = { dir = Vector3.new(1, 0, 0), ragdollHasta = 0, tocando = {} }
+	bots[jugador] = { dir = Vector3.new(1, 0, 0), tocando = {} }
 	senalDe(jugador, "CharacterAdded"):Fire(modelo)
 end
 metodo("Player", "LoadCharacterAsync", crearPersonaje)
-metodo("Player", "LoadCharacter", crearPersonaje)
 
 -- ===================================================================
 -- Física muy simplificada
 -- ===================================================================
 
-local OverlapParamsFalso = {
+local ParamsFalsos = {
 	new = function()
 		return { FilterType = Enum.RaycastFilterType.Exclude, FilterDescendantsInstances = {} }
 	end,
@@ -447,34 +429,33 @@ local function solapan(c1: Vector3, e1: Vector3, c2: Vector3, e2: Vector3): bool
 		and math.abs(c1.Z - c2.Z) <= e1.Z + e2.Z
 end
 
-local function esDePersonaje(parte): boolean
-	local modelo = parte:FindFirstAncestorOfClass("Model")
-	return modelo ~= nil and modelo:FindFirstChildOfClass("Humanoid") ~= nil
-end
-
-metodo("Workspace", "GetPartBoundsInBox", function(self, cf, tamano, parametros)
-	local candidatas = {}
+local function candidatasDe(parametros)
+	local lista = {}
 	if parametros and parametros.FilterType == Enum.RaycastFilterType.Include then
 		for _, raiz in parametros.FilterDescendantsInstances do
 			if raiz:IsA("BasePart") then
-				table.insert(candidatas, raiz)
+				table.insert(lista, raiz)
 			end
 			for _, d in raiz:GetDescendants() do
 				if d:IsA("BasePart") then
-					table.insert(candidatas, d)
+					table.insert(lista, d)
 				end
 			end
 		end
 	else
-		for _, d in self:GetDescendants() do
+		for _, d in workspace:GetDescendants() do
 			if d:IsA("BasePart") then
-				table.insert(candidatas, d)
+				table.insert(lista, d)
 			end
 		end
 	end
+	return lista
+end
+
+metodo("Workspace", "GetPartBoundsInBox", function(_self, cf, tamano, parametros)
 	local resultado = {}
 	local mitad = tamano / 2
-	for _, parte in candidatas do
+	for _, parte in candidatasDe(parametros) do
 		local c, e = extension(parte)
 		if solapan(cf.Position, mitad, c, e) then
 			table.insert(resultado, parte)
@@ -514,11 +495,41 @@ local function alturaSuperficie(parte, x: number, z: number, desdeY: number): nu
 	return desdeY - math.max(tMin, 0)
 end
 
+-- Raycast solo hacia abajo (es lo único que usa el juego).
+metodo("Workspace", "Raycast", function(_self, origen, direccion, parametros)
+	local mejor, mejorParte = nil, nil
+	for _, parte in candidatasDe(parametros) do
+		if parte.CanQuery then
+			local altura = alturaSuperficie(parte, origen.X, origen.Z, origen.Y)
+			if altura and altura >= origen.Y + direccion.Y and (mejor == nil or altura > mejor) then
+				mejor, mejorParte = altura, parte
+			end
+		end
+	end
+	if mejor then
+		return { Position = Vector3.new(origen.X, mejor, origen.Z), Instance = mejorParte, Normal = Vector3.new(0, 1, 0) }
+	end
+	return nil
+end)
+
 type Solida = { parte: any, c: Vector3, e: Vector3 }
 local estaticas: { Solida } = {}
 local estaticasToque: { Solida } = {}
 
--- Partes sólidas y "tocables" de este momento (el lobby se calcula una sola vez).
+local function anotarEstaticas(carpeta)
+	for _, d in carpeta:GetDescendants() do
+		if d:IsA("BasePart") and d.Anchored then
+			local c, e = extension(d)
+			if d.CanCollide then
+				table.insert(estaticas, { parte = d, c = c, e = e })
+			end
+			if d.CanTouch then
+				table.insert(estaticasToque, { parte = d, c = c, e = e })
+			end
+		end
+	end
+end
+
 local function listasDelMundo(): ({ Solida }, { Solida })
 	local solidas = table.clone(estaticas)
 	local tocables = table.clone(estaticasToque)
@@ -543,20 +554,6 @@ local function listasDelMundo(): ({ Solida }, { Solida })
 	return solidas, tocables
 end
 
-local function arenaCentro(): Vector3
-	return Vector3.new(0, 120, 420)
-end
-
-local function empujarBot(jugador, velocidad, vuelo)
-	local estado = bots[jugador]
-	local personaje = jugador.Character
-	local raiz = personaje and personaje:FindFirstChild("HumanoidRootPart")
-	if estado and raiz then
-		raiz.AssemblyLinearVelocity = velocidad
-		estado.ragdollHasta = reloj() + (vuelo or 0)
-	end
-end
-
 local metaPara: { [any]: number } = {}
 
 local function moverBot(jugador, estado, dt: number, solidas: { Solida }, tocables: { Solida })
@@ -572,22 +569,26 @@ local function moverBot(jugador, estado, dt: number, solidas: { Solida }, tocabl
 
 	local pos = raiz.CFrame.Position
 	local v = raiz.AssemblyLinearVelocity
-	local arena = workspace:FindFirstChild("Arena")
-	local enArena = arena ~= nil and (pos - arenaCentro()).Magnitude < 400
+	-- Los empujones del juego son una LinearVelocity dentro del personaje.
+	local empujon = raiz:FindFirstChild("Empujon")
+	if empujon and empujon:IsA("LinearVelocity") then
+		v = empujon.VectorVelocity
+	end
+	local gravedad = workspace.Gravity * (if raiz:FindFirstChild("Globo") then 0.35 else 1)
 
-	-- Dirección: los bots "listos" vuelven hacia el centro si se alejan.
-	local ragdoll = humanoide.PlatformStand or estado.ragdollHasta > reloj()
+	local arena = workspace:FindFirstChild("Arena")
+	local enArena = arena ~= nil and (pos - ARENA).Magnitude < 400
 	local entrada = Vector3.zero
-	if not ragdoll and humanoide.WalkSpeed > 0 then
-		local esCarrera = arena and (arena:FindFirstChild("CintaLoca") or arena:FindFirstChild("Rampa"))
-		if math.random() < 0.08 * dt * 10 then
+	if not humanoide.PlatformStand and humanoide.WalkSpeed > 0 then
+		local esCarrera = arena and (arena:FindFirstChild("CintaLoca") or arena:FindFirstChild("Rampa") or arena:FindFirstChild("Campo"))
+		if math.random() < 0.8 * dt then
 			local angulo = math.random() * math.pi * 2
 			estado.dir = Vector3.new(math.cos(angulo), 0, math.sin(angulo))
 			if enArena and esCarrera then
 				estado.dir = Vector3.new(estado.dir.X * 0.4, 0, 1).Unit
 			elseif enArena then
-				local hacia = Vector3.new(arenaCentro().X - pos.X, 0, arenaCentro().Z - pos.Z)
-				if hacia.Magnitude > 22 and math.random() < 0.7 then
+				local hacia = Vector3.new(ARENA.X - pos.X, 0, ARENA.Z - pos.Z)
+				if hacia.Magnitude > 18 and math.random() < 0.7 then
 					estado.dir = hacia.Unit
 				end
 			end
@@ -595,18 +596,16 @@ local function moverBot(jugador, estado, dt: number, solidas: { Solida }, tocabl
 		entrada = estado.dir * humanoide.WalkSpeed
 	end
 
-	v = v - Vector3.new(0, workspace.Gravity * dt, 0)
+	v = v - Vector3.new(0, gravedad * dt, 0)
 	local nueva = pos + (v + entrada) * dt
 
-	-- Paredes: si choca de lado con algo alto, no avanza en horizontal.
+	-- Paredes
 	local cuerpoE = Vector3.new(0.9, 1.6, 0.9)
-	local cuerpoNuevo = nueva + Vector3.new(0, 0.6, 0)
-	local cuerpoViejo = pos + Vector3.new(0, 0.6, 0)
+	local cuerpoNuevo, cuerpoViejo = nueva + Vector3.new(0, 0.6, 0), pos + Vector3.new(0, 0.6, 0)
 	for _, s in solidas do
 		if solapan(cuerpoNuevo, cuerpoE, s.c, s.e) and not solapan(cuerpoViejo, cuerpoE, s.c, s.e) then
 			local arriba = alturaSuperficie(s.parte, nueva.X, nueva.Z, nueva.Y + 60)
-			local esEscalon = arriba ~= nil and arriba <= nueva.Y - 3 + 1.6
-			if not esEscalon then
+			if not (arriba ~= nil and arriba <= nueva.Y - 3 + 1.6) then
 				nueva = Vector3.new(pos.X, nueva.Y, pos.Z)
 				estado.dir = -estado.dir
 				break
@@ -614,10 +613,11 @@ local function moverBot(jugador, estado, dt: number, solidas: { Solida }, tocabl
 		end
 	end
 
-	-- Suelo: miramos debajo de los dos pies (5 puntos), no solo del centro.
-	local piesAntes, piesNuevos = pos.Y - 3, nueva.Y - 3
+	-- Suelo (5 puntos bajo los pies). Los personajes escalados son más altos o bajos.
+	local alto = 3 * (personaje:GetAttribute("EscalaSimulada") or 1)
+	local piesAntes, piesNuevos = pos.Y - alto, nueva.Y - alto
 	local avance = Vector3.new(nueva.X - pos.X, 0, nueva.Z - pos.Z).Magnitude
-	local desde = piesAntes + 1.2 + avance * 0.6 -- permite subir rampas
+	local desde = piesAntes + 1.2 + avance * 0.6
 	local mejor: number? = nil
 	local columnaC = Vector3.new(nueva.X, (desde + piesNuevos) / 2, nueva.Z)
 	local columnaE = Vector3.new(1, math.abs(desde - piesNuevos) / 2 + 0.5, 1)
@@ -632,35 +632,25 @@ local function moverBot(jugador, estado, dt: number, solidas: { Solida }, tocabl
 		end
 	end
 	if mejor and v.Y <= 0 then
-		nueva = Vector3.new(nueva.X, mejor + 3, nueva.Z)
+		nueva = Vector3.new(nueva.X, mejor + alto, nueva.Z)
 		v = Vector3.new(v.X * 0.5, 0, v.Z * 0.5)
 	end
-
 	raiz.AssemblyLinearVelocity = v
 	personaje:PivotTo(CFrame.new(nueva) * (raiz.CFrame - raiz.CFrame.Position))
 
-	-- Toques: dispara Touched en las partes que roza (lava, trampolines...).
+	-- Toques (lava, trampolines...)
 	local toca = {}
-	local tC, tE = nueva, Vector3.new(1.2, 3.2, 1.2)
 	for _, s in tocables do
-		local parte = s.parte
-		if solapan(tC, tE, s.c, s.e) then
-			toca[parte] = true
-			if not estado.tocando[parte] then
-				senalDe(parte, "Touched"):Fire(raiz)
-				-- Los demás bots hacen lo que haría su script de cliente.
-				if jugador ~= jugadorLocal and parte:HasTag("Impulso") then
-					local impulso = parte:GetAttribute("Impulso")
-					if impulso then
-						empujarBot(jugador, impulso, parte:GetAttribute("Vuelo") or 0)
-					end
-				end
+		if solapan(nueva, Vector3.new(1.2, 3.2, 1.2), s.c, s.e) then
+			toca[s.parte] = true
+			if not estado.tocando[s.parte] then
+				senalDe(s.parte, "Touched"):Fire(raiz)
 			end
 		end
 	end
 	estado.tocando = toca
 
-	-- En las carreras, cada bot "sabe" llegar a la meta en algún momento.
+	-- Trucos de bot: llegar a la meta en carreras, subir a la cima del rey...
 	if enArena and arena then
 		local meta = arena:FindFirstChild("Meta")
 		if meta and humanoide.WalkSpeed > 0 then
@@ -675,9 +665,8 @@ local function moverBot(jugador, estado, dt: number, solidas: { Solida }, tocabl
 				raiz.AssemblyLinearVelocity = Vector3.zero
 			end
 		end
-		-- Rey de la colina: a veces alguien sube a la cima.
 		local cima = arena:FindFirstChild("Piso3")
-		if cima and humanoide.WalkSpeed > 0 and math.random() < 0.01 then
+		if cima and humanoide.WalkSpeed > 0 and math.random() < 0.1 * dt then
 			personaje:PivotTo(CFrame.new(cima.CFrame.Position + Vector3.new(math.random(-4, 4), 4, math.random(-4, 4))))
 		end
 	else
@@ -685,272 +674,164 @@ local function moverBot(jugador, estado, dt: number, solidas: { Solida }, tocabl
 	end
 end
 
--- Mueve las cosas sueltas de la arena (barras, bolas, rocas que caen).
+-- Mueve lo suelto de la arena (barras con motor, bolas, rocas que caen).
 local function moverMundo(dt: number)
-	local arena = workspace:FindFirstChild("Arena")
-	if not arena then
-		return
-	end
-	for _, d in arena:GetDescendants() do
-		if d:IsA("BasePart") and not d.Anchored then
-			local bisagra = d:FindFirstChildOfClass("HingeConstraint")
-			if bisagra then
-				local giro = CFrame.Angles(0, bisagra.AngularVelocity * dt, 0)
-				local centro = d.CFrame.Position
-				d.CFrame = CFrame.new(centro) * giro * (d.CFrame - centro)
-			elseif d.Name == "Bola" then
-				d.CFrame = d.CFrame + Vector3.new(0, -0.2126, -1) * 30 * dt
-			else
-				d.CFrame = d.CFrame + Vector3.new(0, -40 * dt, 0)
+	for _, carpeta in { workspace:FindFirstChild("Arena"), workspace:FindFirstChild("Lobby") } do
+		for _, d in carpeta and carpeta:GetDescendants() or {} do
+			if d:IsA("BasePart") and not d.Anchored and not d:FindFirstAncestorOfClass("Model") then
+				local bisagra = d:FindFirstChildOfClass("HingeConstraint")
+				if bisagra then
+					local centro = d.CFrame.Position
+					d.CFrame = CFrame.new(centro) * CFrame.Angles(0, bisagra.AngularVelocity * dt, 0) * (d.CFrame - centro)
+				elseif d.Name == "Bola" then
+					d.CFrame = d.CFrame + Vector3.new(0, -0.2126, -1) * 30 * dt
+				else
+					d.CFrame = d.CFrame + Vector3.new(0, -40 * dt, 0)
+				end
 			end
 		end
 	end
 end
 
 -- ===================================================================
--- Entorno para ejecutar los scripts del juego
+-- Ejecutar el script del juego
 -- ===================================================================
 
-local function globales()
-	return {
-		game = game,
-		workspace = workspace,
-		Instance = Instance,
-		Vector3 = Vector3,
-		Vector2 = roblox.Vector2,
-		CFrame = CFrame,
-		Color3 = roblox.Color3,
-		UDim = roblox.UDim,
-		UDim2 = roblox.UDim2,
-		Enum = Enum,
-		Font = roblox.Font,
-		ColorSequence = roblox.ColorSequence,
-		ColorSequenceKeypoint = roblox.ColorSequenceKeypoint,
-		NumberSequence = roblox.NumberSequence,
-		NumberSequenceKeypoint = roblox.NumberSequenceKeypoint,
-		NumberRange = roblox.NumberRange,
-		PhysicalProperties = roblox.PhysicalProperties,
-		BrickColor = roblox.BrickColor,
-		Rect = roblox.Rect,
-		TweenInfo = TweenInfoFalso,
-		OverlapParams = OverlapParamsFalso,
-		RaycastParams = OverlapParamsFalso,
-		task = tareas,
-		os = osVirtual,
-		math = math,
-		string = string,
-		table = table,
-		coroutine = coroutine,
-		utf8 = utf8,
-		buffer = buffer,
-		bit32 = bit32,
-		debug = debug,
-		print = function(...)
-			table.insert(registro, "PRINT " .. table.concat({ ... }, " "))
-		end,
-		warn = function(...)
-			local partes = {}
-			for _, x in { ... } do
-				table.insert(partes, tostring(x))
-			end
-			local texto = table.concat(partes, " ")
-			table.insert(avisos, texto)
-			print("\27[33m⚠️ AVISO:\27[0m " .. texto)
-		end,
-		error = error,
-		assert = assert,
-		pcall = pcall,
-		xpcall = xpcall,
-		select = select,
-		type = type,
-		typeof = typeof,
-		tostring = tostring,
-		tonumber = tonumber,
-		setmetatable = setmetatable,
-		getmetatable = getmetatable,
-		rawget = rawget,
-		rawset = rawset,
-		rawequal = rawequal,
-		rawlen = rawlen,
-		ipairs = ipairs,
-		pairs = pairs,
-		next = next,
-		unpack = table.unpack,
-	}
-end
-
--- Lune no calcula BasePart.Position a partir de CFrame. Para la simulación,
--- cambiamos las LECTURAS de ".Position" por una función que sí lo hace.
+-- Lune no calcula BasePart.Position ni AssemblyMass. Para la simulación,
+-- cambiamos sus LECTURAS por funciones que sí lo hacen.
 local function posicionDe(x)
 	if typeof(x) == "Instance" and x:IsA("BasePart") then
 		return x.CFrame.Position
 	end
 	return x.Position
 end
+local function masaDe(_x)
+	return 15
+end
 
 local function adaptar(fuente: string): string
-	return (
-		string.gsub(fuente, "([%a_][%w_%.]*)%.Position(%s*=?=?)", function(receptor, sufijo)
-			if string.match(sufijo, "^%s*=$") then
-				return nil -- es una asignación: se deja igual
-			end
-			return "__posicion(" .. receptor .. ")" .. sufijo
-		end)
-	)
+	fuente = string.gsub(fuente, "([%a_][%w_%.]*)%.Position(%s*=?=?)", function(receptor, sufijo)
+		if string.match(sufijo, "^%s*=$") then
+			return nil -- es una asignación: se deja igual
+		end
+		return "__posicion(" .. receptor .. ")" .. sufijo
+	end)
+	fuente = string.gsub(fuente, "([%a_][%w_%.]*)%.AssemblyMass", "__masa(%1)")
+	-- Partida de prueba con más rondas para ver muchos minijuegos.
+	fuente = string.gsub(fuente, "RONDAS_POR_PARTIDA = %d+,", "RONDAS_POR_PARTIDA = " .. RONDAS .. ",", 1)
+	return fuente
 end
 
-local function crearCargador()
-	local base = globales()
-	base.__posicion = posicionDe
-	local cache = {}
-	local function requerir(modulo)
-		local clave = modulo:GetFullName()
-		if cache[clave] ~= nil then
-			return cache[clave]
+local entorno = {
+	game = game,
+	workspace = workspace,
+	Instance = Instance,
+	Vector3 = Vector3,
+	Vector2 = roblox.Vector2,
+	CFrame = CFrame,
+	Color3 = roblox.Color3,
+	UDim = roblox.UDim,
+	UDim2 = roblox.UDim2,
+	Enum = Enum,
+	Font = roblox.Font,
+	ColorSequence = roblox.ColorSequence,
+	ColorSequenceKeypoint = roblox.ColorSequenceKeypoint,
+	NumberSequence = roblox.NumberSequence,
+	NumberRange = roblox.NumberRange,
+	PhysicalProperties = roblox.PhysicalProperties,
+	TweenInfo = TweenInfoFalso,
+	OverlapParams = ParamsFalsos,
+	RaycastParams = ParamsFalsos,
+	task = tareas,
+	os = osVirtual,
+	math = math,
+	string = string,
+	table = table,
+	coroutine = coroutine,
+	utf8 = utf8,
+	debug = debug,
+	print = function(...)
+		local partes = {}
+		for _, x in { ... } do
+			table.insert(partes, tostring(x))
 		end
-		local entorno = table.clone(base)
-		entorno.script = modulo
-		entorno.require = requerir
-		local funcion = luau.load(adaptar(modulo.Source), { debugName = clave, environment = entorno })
-		local resultado = funcion()
-		cache[clave] = resultado
-		return resultado
-	end
-	local function ejecutar(script)
-		local entorno = table.clone(base)
-		entorno.script = script
-		entorno.require = requerir
-		local funcion = luau.load(adaptar(script.Source), { debugName = script:GetFullName(), environment = entorno })
-		tareas.spawn(funcion)
-	end
-	return requerir, ejecutar
-end
-
--- ===================================================================
--- Remotos: del servidor a los clientes
--- ===================================================================
-
-local cuenta: { [string]: number } = {}
-local titulosJugados: { string } = {}
-local campeonVisto = false
-
-local function resumir(nombre: string, a, b)
-	cuenta[nombre] = (cuenta[nombre] or 0) + 1
-	local t = string.format("[%6.1f] ", reloj())
-	if nombre == "Anuncio" then
-		local sub = if type(b) == "table" and b.Subtitulo then " — " .. b.Subtitulo else ""
-		table.insert(registro, t .. "📢 " .. tostring(a) .. sub)
-	elseif nombre == "Feed" then
-		table.insert(registro, t .. "   " .. tostring(a))
-	elseif nombre == "Ruleta" then
-		table.insert(registro, t .. "🎰 " .. a.Titulo .. " → " .. a.Opciones[a.Elegido])
-	elseif nombre == "Resultados" then
-		table.insert(titulosJugados, a.Titulo)
-		local filas = {}
-		for _, f in a.Filas do
-			table.insert(filas, string.format("%dº %s (%s) +%d=%d", f.Puesto, f.Nombre, f.Detalle, f.Puntos, f.Total))
+		table.insert(registro, "PRINT " .. table.concat(partes, " "))
+	end,
+	warn = function(...)
+		local partes = {}
+		for _, x in { ... } do
+			table.insert(partes, tostring(x))
 		end
-		table.insert(registro, t .. "📊 " .. a.Titulo .. ": " .. table.concat(filas, " | "))
-	elseif nombre == "Campeon" then
-		campeonVisto = true
-		table.insert(registro, t .. "👑 CAMPEÓN: " .. table.concat(a.Nombres, ", "))
-	end
-end
+		local texto = table.concat(partes, " ")
+		table.insert(avisos, texto)
+		print("\27[33m⚠️ AVISO:\27[0m " .. texto)
+	end,
+	error = error,
+	assert = assert,
+	pcall = pcall,
+	xpcall = xpcall,
+	select = select,
+	type = type,
+	typeof = typeof,
+	tostring = tostring,
+	tonumber = tonumber,
+	setmetatable = setmetatable,
+	getmetatable = getmetatable,
+	rawget = rawget,
+	rawset = rawset,
+	rawequal = rawequal,
+	ipairs = ipairs,
+	pairs = pairs,
+	next = next,
+	__posicion = posicionDe,
+	__masa = masaDe,
+}
 
-metodo("RemoteEvent", "FireAllClients", function(self, ...)
-	resumir(self.Name, ...)
-	if self.Name == "Empujon" then
-		for jugador in bots do
-			if jugador ~= jugadorLocal then
-				empujarBot(jugador, ...)
-			end
-		end
-	end
-	senalDe(self, "OnClientEvent"):Fire(...)
-end)
-metodo("RemoteEvent", "FireClient", function(self, jugador, ...)
-	cuenta[self.Name .. " (a uno)"] = (cuenta[self.Name .. " (a uno)"] or 0) + 1
-	if self.Name == "Empujon" and jugador ~= jugadorLocal then
-		empujarBot(jugador, ...)
-	end
-	if jugador == jugadorLocal then
-		senalDe(self, "OnClientEvent"):Fire(...)
-	end
-end)
+print("🧪 Simulando LOCURA TOTAL a velocidad x" .. ACELERACION .. " (" .. RONDAS .. " rondas)...")
 
--- ===================================================================
--- ¡A jugar!
--- ===================================================================
-
-print("🧪 Simulando LOCURA TOTAL a velocidad x" .. ACELERACION .. "...")
-
-local requerirServidor, ejecutarServidor = crearCargador()
-local ServerScriptService = game:GetService("ServerScriptService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local scriptServidor = ServerScriptService:FindFirstChild("Servidor")
-
--- Una partida que pase por los 8 minijuegos.
-local Config = requerirServidor(ReplicatedStorage.Compartido.Config)
-Config.RONDAS_POR_PARTIDA = 8
-local Jugadores = requerirServidor(scriptServidor.Jugadores)
-
-ejecutarServidor(scriptServidor)
+local script = game:GetService("ServerScriptService"):FindFirstChild("LocuraTotal")
+assert(script, "No encuentro ServerScriptService.LocuraTotal en " .. RUTA)
+entorno.script = script
+local funcion = luau.load(adaptar(script.Source), { debugName = "LocuraTotal", environment = entorno })
+tareas.spawn(funcion)
 tareas.wait(1)
 
-local lobby = workspace:FindFirstChild("Lobby")
-assert(lobby, "No se construyó el lobby")
-for _, d in lobby:GetDescendants() do
-	if d:IsA("BasePart") then
-		local c, e = extension(d)
-		if d.CanCollide then
-			table.insert(estaticas, { parte = d, c = c, e = e })
-		end
-		if d.CanTouch then
-			table.insert(estaticasToque, { parte = d, c = c, e = e })
-		end
-	end
-end
-print(string.format("🏝️ Lobby construido: %d piezas", #lobby:GetDescendants()))
+assert(workspace:FindFirstChild("Lobby"), "No se construyó el lobby")
+assert(workspace:FindFirstChild("Grada"), "No se construyó la grada")
+anotarEstaticas(workspace.Lobby)
+anotarEstaticas(workspace.Grada)
+print(string.format("🏝️ Lobby: %d objetos · 👀 Grada: %d objetos", #workspace.Lobby:GetDescendants(), #workspace.Grada:GetDescendants()))
 
 -- 9 jugadores: el noveno debería ser expulsado (máximo 8).
 local lista = {}
 for i = 1, 9 do
 	local jugador = Instance.new("Player")
-	jugador.Name = NOMBRES_BOTS[i] or ("Bot" .. i)
+	jugador.Name = NOMBRES_BOTS[i]
 	jugador.DisplayName = jugador.Name
 	jugador.UserId = 1000 + i
 	Instance.new("Backpack").Parent = jugador
 	Instance.new("PlayerGui").Parent = jugador
 	jugador.Parent = Players
-	if i == 1 then
-		jugadorLocal = jugador
-		pcall(function()
-			Players.LocalPlayer = jugador
-		end)
-	end
 	table.insert(lista, jugador)
 	senalDe(Players, "PlayerAdded"):Fire(jugador)
 	tareas.wait(0.2)
 end
+local pepito = lista[1]
 
--- Cliente (lo que ve Pepito).
-local _, ejecutarCliente = crearCargador()
-local scriptCliente = game:GetService("StarterPlayer").StarterPlayerScripts:FindFirstChild("Cliente")
-ejecutarCliente(scriptCliente)
+-- ===================================================================
+-- Motores: Heartbeat, física, y lo que hacen los bots
+-- ===================================================================
 
--- Motores: Heartbeat, física de bots y del mundo.
-local RunService = game:GetService("RunService")
+local salir = false
 local ultimo = reloj()
-local salirDeLaPartida = false
 task.spawn(function()
-	while not salirDeLaPartida do
+	while not salir do
 		task.wait(1 / 120)
 		local ahora = reloj()
 		local dt = math.min(ahora - ultimo, 0.3)
 		ultimo = ahora
 		avisarEtiquetasNuevas()
-		senalDe(RunService, "Heartbeat"):Fire(dt)
-		senalDe(RunService, "RenderStepped"):Fire(dt)
+		senalDe(game:GetService("RunService"), "Heartbeat"):Fire(dt)
 		local ok, err = xpcall(function()
 			moverMundo(dt)
 			local solidas, tocables = listasDelMundo()
@@ -962,33 +843,107 @@ task.spawn(function()
 		end, conRastro)
 		if not ok then
 			print("💥 Fallo en el simulador (no en el juego): " .. tostring(err))
-			salirDeLaPartida = true
+			salir = true
 		end
 	end
 end)
 
--- A mitad de partida, Kiko se va del juego.
-local seFue = false
+-- Lo que ve Pepito en su pantalla (para el registro de la partida).
+local function etiquetaDe(gui, ruta: { string })
+	local actual = gui
+	for _, nombre in ruta do
+		actual = actual and actual:FindFirstChild(nombre)
+	end
+	return actual
+end
+
+local rondasJugadas: { string } = {}
+local campeonVisto = false
+local votosGanados = 0
+local enGrada = 0
+local textosFeed: { string } = {}
 task.spawn(function()
-	while #titulosJugados < 3 do
-		task.wait(0.05)
+	local ultimoAnuncio, ultimoResultado = "", ""
+	local vistos = setmetatable({}, { __mode = "k" })
+	while not salir do
+		tareas.wait(0.1)
+		local gui = pepito:FindFirstChild("PlayerGui") and pepito.PlayerGui:FindFirstChild("LocuraUI")
+		if gui then
+			local t = string.format("[%6.1f] ", reloj())
+			local anuncio = etiquetaDe(gui, { "Anuncio" })
+			local sub = etiquetaDe(gui, { "Subtitulo" })
+			if anuncio and anuncio.TextTransparency < 0.5 and anuncio.Text ~= ultimoAnuncio then
+				ultimoAnuncio = anuncio.Text
+				local s = if sub and sub.Text ~= "" then " — " .. sub.Text else ""
+				table.insert(registro, t .. "📢 " .. anuncio.Text .. s)
+				if string.find(anuncio.Text, "CAMPEÓN", 1, true) then
+					campeonVisto = true
+				end
+				if string.find(s, "Ganó la votación", 1, true) then
+					votosGanados += 1
+				end
+			end
+			local feed = etiquetaDe(gui, { "Feed" })
+			if feed then
+				for _, hijo in feed:GetChildren() do
+					if hijo:IsA("TextLabel") and not vistos[hijo] then
+						vistos[hijo] = true
+						table.insert(registro, t .. "   " .. hijo.Text)
+						table.insert(textosFeed, hijo.Text)
+					end
+				end
+			end
+			local resultados = etiquetaDe(gui, { "Resultados" })
+			local titulo = etiquetaDe(gui, { "Resultados", "Titulo" })
+			if resultados and resultados.Visible and titulo and titulo.Text .. #rondasJugadas ~= ultimoResultado then
+				tareas.wait(0.05)
+				ultimoResultado = titulo.Text .. (#rondasJugadas + 1)
+				table.insert(rondasJugadas, titulo.Text)
+				local filas = {}
+				for _, fila in resultados.Lista:GetChildren() do
+					if fila:IsA("Frame") then
+						local textos = {}
+						for _, e in fila:GetChildren() do
+							if e:IsA("TextLabel") then
+								table.insert(textos, (string.gsub(e.Text, "<[^>]+>", "")))
+							end
+						end
+						table.insert(filas, { orden = fila.LayoutOrder, texto = table.concat(textos, " ") })
+					end
+				end
+				table.sort(filas, function(a, b)
+					return a.orden < b.orden
+				end)
+				local partes = {}
+				for _, f in filas do
+					table.insert(partes, f.texto)
+				end
+				table.insert(registro, t .. titulo.Text .. ": " .. table.concat(partes, " | "))
+			end
+			-- ¿Votación? Algunos bots se suben a las plataformas.
+			local estadoTexto = etiquetaDe(gui, { "Barra", "Estado" })
+			if estadoTexto and string.find(estadoTexto.Text, "vota", 1, true) and math.random() < 0.15 then
+				local quien = lista[math.random(1, 8)]
+				local plataforma = workspace.Lobby:FindFirstChild("Voto" .. math.random(1, 3))
+				if quien.Character and quien.Parent == Players and plataforma then
+					quien.Character:PivotTo(CFrame.new(plataforma.CFrame.Position + Vector3.new(math.random(-3, 3), 3.5, math.random(-3, 3))))
+				end
+			end
+		end
+		for jugador in bots do
+			local raiz = jugador.Character and jugador.Character:FindFirstChild("HumanoidRootPart")
+			if raiz and (raiz.CFrame.Position - GRADA).Magnitude < 90 then
+				enGrada += 1
+			end
+		end
 	end
-	tareas.wait(30)
-	local kiko = lista[5]
-	senalDe(Players, "PlayerRemoving"):Fire(kiko)
-	if kiko.Character then
-		kiko.Character:Destroy() -- en Roblox el personaje desaparece al salir
-	end
-	kiko.Parent = nil
-	bots[kiko] = nil
-	seFue = true
-	table.insert(registro, string.format("[%6.1f] 🚪 Kiko se fue del juego", reloj()))
 end)
 
--- Los bots hacen clic con el martillo y Pepito usa el botón de ESPECTAR.
-local clics, espectados = 0, 0
+-- Los bots hacen clic con el martillo y, a veces, pulsan el botón rojo.
+local clics, botonazos = 0, 0
 task.spawn(function()
-	while not salirDeLaPartida do
+	local aviso = workspace.Lobby:FindFirstChild("BotonRojo", true):FindFirstChildOfClass("ProximityPrompt")
+	while not salir do
 		tareas.wait(0.6)
 		for jugador in bots do
 			local personaje = jugador.Character
@@ -998,31 +953,39 @@ task.spawn(function()
 				senalDe(herramienta, "Activated"):Fire()
 			end
 		end
-		local gui = jugadorLocal and jugadorLocal:FindFirstChild("PlayerGui")
-		local panel = gui and gui:FindFirstChild("LocuraUI") and gui.LocuraUI:FindFirstChild("Espectar")
-		if panel and panel.Visible then
-			espectados += 1
-			local boton = panel:FindFirstChild(if math.random() < 0.85 then "Siguiente" else "Cerrar")
-			if boton then
-				senalDe(boton, "Activated"):Fire()
-			end
+		if math.random() < 0.04 then
+			botonazos += 1
+			senalDe(aviso, "Triggered"):Fire(lista[math.random(1, 8)])
 		end
 	end
 end)
 
--- Esperar a que termine la partida (o al límite de tiempo).
-local puntosAntes = {}
-while reloj() < LIMITE_VIRTUAL and not salirDeLaPartida do
+-- A mitad de partida, Kiko se va del juego.
+local seFue = false
+task.spawn(function()
+	while #rondasJugadas < 3 do
+		task.wait(0.05)
+	end
+	tareas.wait(30)
+	local kiko = lista[5]
+	senalDe(Players, "PlayerRemoving"):Fire(kiko)
+	if kiko.Character then
+		kiko.Character:Destroy()
+	end
+	kiko.Parent = nil
+	bots[kiko] = nil
+	seFue = true
+	table.insert(registro, string.format("[%6.1f] 🚪 Kiko se fue del juego", reloj()))
+end)
+
+while reloj() < LIMITE_VIRTUAL and not salir do
 	task.wait(0.1)
 	if campeonVisto then
-		for _, jugador in Players:GetPlayers() do
-			puntosAntes[jugador.Name] = Jugadores.Puntos(jugador)
-		end
-		tareas.wait(Config.TIEMPO_CEREMONIA + 3)
+		tareas.wait(22)
 		break
 	end
 end
-salirDeLaPartida = true
+salir = true
 
 -- ===================================================================
 -- Informe
@@ -1033,71 +996,86 @@ for _, linea in registro do
 	print(linea)
 end
 
-local comprobaciones = {}
-local function comprobar(nombre: string, ok: boolean, detalle: string?)
-	table.insert(comprobaciones, { nombre = nombre, ok = ok, detalle = detalle })
+local function feedContiene(trozo: string): boolean
+	for _, t in textosFeed do
+		if string.find(t, trozo, 1, true) then
+			return true
+		end
+	end
+	return false
 end
 
-local distintos = {}
-for _, t in titulosJugados do
-	distintos[t] = true
+local comprobaciones = {}
+local function comprobar(nombre: string, ok: boolean, detalle: string?, opcional: boolean?)
+	table.insert(comprobaciones, { nombre = nombre, ok = ok, detalle = detalle, opcional = opcional })
 end
-local numDistintos = 0
-for _ in distintos do
-	numDistintos += 1
+
+local distintos, numDistintos = {}, 0
+for _, t in rondasJugadas do
+	if not distintos[t] then
+		distintos[t] = true
+		numDistintos += 1
+	end
 end
-comprobar("Se jugaron 8 rondas", #titulosJugados == 8, tostring(#titulosJugados))
-comprobar("Los 8 minijuegos son distintos", numDistintos == 8, tostring(numDistintos))
+comprobar("Se jugaron todas las rondas", #rondasJugadas == RONDAS, tostring(#rondasJugadas))
+comprobar("Muchos minijuegos distintos", numDistintos >= math.min(RONDAS, 11), tostring(numDistintos))
 comprobar("Hubo ceremonia de campeón", campeonVisto)
 comprobar("El 9º jugador fue expulsado (máx. 8)", #expulsados == 1, table.concat(expulsados, "; "))
 comprobar("Un jugador se fue a mitad y el juego siguió", seFue)
 comprobar("La gravedad volvió a la normalidad", math.abs(workspace.Gravity - 196.2) < 0.01, tostring(workspace.Gravity))
 comprobar("La arena se borró al final", workspace:FindFirstChild("Arena") == nil)
+comprobar("Hubo votaciones con votos", votosGanados > 0, tostring(votosGanados))
+comprobar("Los eliminados fueron a la grada", enGrada > 0)
+comprobar("Alguien cogió una caja sorpresa", feedContiene("cogió ⚡") or feedContiene("cogió 🦘") or feedContiene("cogió 🛡") or feedContiene("cogió 💥") or feedContiene("cogió 🎈"))
+comprobar("Alguien pulsó el botón rojo", feedContiene("pulsó el botón rojo"), tostring(botonazos) .. " intentos")
+comprobar("Hubo eliminaciones con mérito", feedContiene("eliminó a"), nil, true)
+local spawnsFuera = 0
+for _, d in workspace:GetDescendants() do
+	if d:IsA("SpawnLocation") and d.Enabled and not d:IsDescendantOf(workspace.Lobby) then
+		spawnsFuera += 1
+	end
+end
+comprobar("No queda el Baseplate de la plantilla", workspace:FindFirstChild("Baseplate") == nil)
+comprobar("Solo se aparece en el lobby", spawnsFuera == 0, tostring(spawnsFuera))
+comprobar("Hubo premios al final", feedContiene("🏅"))
 
-local coronas, todosACero = 0, true
+local coronas, todosACero, niveles = 0, true, 0
 for _, jugador in Players:GetPlayers() do
 	local stats = jugador:FindFirstChild("leaderstats")
 	if stats then
 		coronas += stats.Coronas.Value
+		niveles += stats.Nivel.Value
 		if stats.Puntos.Value ~= 0 then
 			todosACero = false
 		end
 	end
 end
 comprobar("El campeón ganó una corona", coronas >= 1, tostring(coronas))
+comprobar("Los jugadores subieron de nivel", niveles > #Players:GetPlayers(), tostring(niveles))
 comprobar("Los puntos se reiniciaron tras la ceremonia", todosACero)
-comprobar("Los bots usaron el Martillo Loco", clics > 0, tostring(clics) .. " golpes")
-comprobar("Pepito usó el botón de ESPECTAR", espectados > 0, tostring(espectados) .. " veces")
+comprobar("Los bots usaron el Martillo Loco", clics > 0, tostring(clics) .. " clics")
 comprobar("Sin errores de Lua", #errores == 0, tostring(#errores))
 comprobar("Sin avisos (warn)", #avisos == 0, tostring(#avisos))
 
 print("\n================ ✅ COMPROBACIONES ================")
 local fallos = 0
 for _, c in comprobaciones do
-	print((if c.ok then "✅ " else "❌ ") .. c.nombre .. (if c.detalle then "  (" .. c.detalle .. ")" else ""))
-	if not c.ok then
+	local icono = if c.ok then "✅ " elseif c.opcional then "⚠️  " else "❌ "
+	print(icono .. c.nombre .. (if c.detalle then "  (" .. c.detalle .. ")" else "") .. (if not c.ok and c.opcional then " (depende del azar)" else ""))
+	if not c.ok and not c.opcional then
 		fallos += 1
 	end
 end
-
-print("\n📈 Mensajes enviados a los clientes:")
-local nombres = {}
-for nombre in cuenta do
-	table.insert(nombres, nombre)
+print("\n🎲 Minijuegos jugados:")
+for t in distintos do
+	print("   " .. t)
 end
-table.sort(nombres)
-for _, nombre in nombres do
-	print(string.format("   %-22s %d", nombre, cuenta[nombre]))
-end
-
-local hayDestruidos = next(destruidos) ~= nil
-if hayDestruidos then
+if next(destruidos) ~= nil then
 	print("\nℹ️  Cambios en objetos ya borrados (en Roblox no dan error, en Lune sí):")
 	for donde, veces in destruidos do
 		print(string.format("   %4dx %s", veces, donde))
 	end
 end
-
 print(string.format("\nTiempo de juego simulado: %.0f s (real: %.1f s)", reloj(), os.clock() - inicioReal))
 if fallos == 0 then
 	print("\27[32m🎉 ¡TODO BIEN!\27[0m")
