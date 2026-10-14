@@ -936,6 +936,7 @@ local enGrada = 0
 local textosFeed: { string } = {}
 task.spawn(function()
 	local ultimoAnuncio, ultimoResultado = "", ""
+	local resultadosAntes = false
 	local vistos = setmetatable({}, { __mode = "k" })
 	while not salir do
 		tareas.wait(0.1)
@@ -967,7 +968,8 @@ task.spawn(function()
 			end
 			local resultados = etiquetaDe(gui, { "Resultados" })
 			local titulo = etiquetaDe(gui, { "Resultados", "Titulo" })
-			if resultados and resultados.Visible and titulo and titulo.Text .. #rondasJugadas ~= ultimoResultado then
+			local visibles = resultados and resultados.Visible
+			if visibles and titulo and not resultadosAntes then
 				tareas.wait(0.05)
 				ultimoResultado = titulo.Text .. (#rondasJugadas + 1)
 				table.insert(rondasJugadas, titulo.Text)
@@ -992,6 +994,7 @@ task.spawn(function()
 				end
 				table.insert(registro, t .. titulo.Text .. ": " .. table.concat(partes, " | "))
 			end
+			resultadosAntes = visibles
 			-- ¿Votación? Algunos bots se suben a las plataformas.
 			local estadoTexto = etiquetaDe(gui, { "Barra", "Estado" })
 			if estadoTexto and string.find(estadoTexto.Text, "vota", 1, true) and math.random() < 0.15 then
@@ -1012,7 +1015,13 @@ task.spawn(function()
 end)
 
 -- Los bots hacen clic con el martillo y, a veces, pulsan el botón rojo.
-local clics, botonazos = 0, 0
+local clics, botonazos, compras = 0, 0, 0
+local avisosMercado = {}
+for _, d in (workspace:FindFirstChild("Mercado") or Instance.new("Folder")):GetDescendants() do
+	if d:IsA("ProximityPrompt") then
+		table.insert(avisosMercado, d)
+	end
+end
 task.spawn(function()
 	local aviso = workspace.Lobby:FindFirstChild("BotonRojo", true):FindFirstChildOfClass("ProximityPrompt")
 	while not salir do
@@ -1028,6 +1037,16 @@ task.spawn(function()
 		if math.random() < 0.04 then
 			botonazos += 1
 			senalDe(aviso, "Triggered"):Fire(lista[math.random(1, 8)])
+		end
+		-- De vez en cuando alguien compra algo en el Mercado (en Studio es de prueba)
+		if #avisosMercado > 0 and math.random() < 0.03 then
+			compras += 1
+			local quien = lista[math.random(1, 8)]
+			local aviso = avisosMercado[math.random(1, #avisosMercado)]
+			-- Elegir minijuego es caro: los bots lo hacen pocas veces
+			if quien.Parent == Players and (aviso:GetAttribute("Accion") ~= "Elegir" or math.random() < 0.2) then
+				senalDe(aviso, "Triggered"):Fire(quien)
+			end
 		end
 	end
 end)
@@ -1110,6 +1129,25 @@ end
 comprobar("No queda el Baseplate de la plantilla", workspace:FindFirstChild("Baseplate") == nil)
 comprobar("Solo se aparece en el lobby", spawnsFuera == 0, tostring(spawnsFuera))
 comprobar("Hubo premios al final", feedContiene("🏅"))
+comprobar("Se construyó el Mercado", #avisosMercado >= 20, tostring(#avisosMercado) .. " puestos")
+comprobar("Alguien eligió minijuego en el Mercado", feedContiene("ha elegido"), tostring(compras) .. " compras")
+local elegidos = 0
+for _, linea in registro do
+	if string.find(linea, "Lo ha elegido", 1, true) then
+		elegidos += 1
+	end
+end
+comprobar("Se jugaron minijuegos elegidos en el Mercado", elegidos > 0, tostring(elegidos))
+comprobar("Alguien se compró una estela", feedContiene("estrena la estela"), nil, true)
+local monedasTotales = 0
+for _, jugador in Players:GetPlayers() do
+	local stats = jugador:FindFirstChild("leaderstats")
+	local monedas = stats and stats:FindFirstChild("Monedas")
+	if monedas then
+		monedasTotales += monedas.Value
+	end
+end
+comprobar("Los jugadores ganaron monedas", monedasTotales > 0, tostring(monedasTotales) .. " 🪙")
 
 local coronas, todosACero, niveles = 0, true, 0
 for _, jugador in Players:GetPlayers() do

@@ -63,7 +63,7 @@ Pestaña **Test** → *Clients and Servers* → **Local Server** con **8 Players
 | 👑 | **Rey de la Colina** | Quédate en la cima dorada para sumar puntos… con martillos para echarte. |
 | 💣 | **Patata Bomba** | Llevas una bomba en la cabeza: toca a otro para pasársela antes del ¡BOOM! |
 | 🌪️ | **La Licuadora** | Dos barras gigantes giran cada vez más rápido. ¡Salta! |
-| 🏁 | **Carrera Loca** | Lava, cinta que te empuja, plataformas que desaparecen, trampolines y licuadora. |
+| 🏃 | **Parkour Extremo** 🆕 | 300 metros por secciones: pilares sobre lava, cinta loca, barra barredora, plataformas que desaparecen, escalada, pistones y puente en zigzag. Las banderas verdes guardan tu progreso. |
 | 🧊 | **Sumo en el Hielo** | Pista de hielo que encoge, ráfagas de viento y martillos. |
 | 🎳 | **Rampa Rodante** | Sube una rampa mientras bajan bolas gigantes. ¡Tú eres el bolo! |
 | 🎨 | **Pinta el Suelo** ✨ | Pinta baldosas de tu color pisándolas. Gana quien pinte más. |
@@ -103,6 +103,27 @@ Pestaña **Test** → *Clients and Servers* → **Local Server** con **8 Players
   colores entre el lobby y la arena, **barra de tiempo**, panel de votos con
   barras, resultados con colores de podio, cuenta atrás de colores y destellos
   de pantalla (rojo si te eliminan, dorado si ganas).
+
+## 🛒 El Mercado (monedas y Robux)
+
+Detrás del cartel gigante del lobby hay un puente a la isla del **Mercado**:
+
+- 🎟️ **Máquina de minijuegos**: un puesto por minijuego. Pagas Robux y **tú eliges**
+  el próximo minijuego: se juega sin votar (máximo 3 en cola).
+- ✨ **Estelas** que se compran con **🪙 monedas** (Chicle, Arcoíris, Fuego, Hielo,
+  Galaxia y Oro solo para VIP). Se ven siempre que te mueves.
+- ⭐ **VIP** (pase): x2 monedas, tu voto vale doble, estela de oro y etiqueta VIP.
+- 🪙 **Bolsa de 1000 monedas** y 🎉 **Fiesta para todos** (fuegos artificiales y
+  +25 🪙 a cada jugador).
+- 🏆 **Ranking de coronas** de todos los servidores.
+
+Las **monedas** se ganan jugando (más cuanto mejor quedas), siendo campeón y con la
+🎁 **recompensa diaria**. Todo se guarda.
+
+> Para cobrar Robux de verdad tienes que crear los productos en Roblox y pegar sus
+> números de ID en la configuración del script: está explicado paso a paso en
+> [`PUBLICAR.md`](PUBLICAR.md). Mientras no los pongas, **en Studio las compras son de
+> prueba (gratis)** para que puedas probarlo todo.
 
 ## ✨ Y además…
 

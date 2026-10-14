@@ -22,6 +22,8 @@
 	  • Cajas sorpresa ❓ con poderes, Martillo Loco 🔨, botón rojo 🔴 "NO PULSAR"
 	  • Grada para ver la ronda cuando te eliminan, podio y fuegos artificiales
 	  • Coronas 👑, victorias, niveles y títulos que se guardan para siempre
+	  • 🛒 MERCADO: elegir minijuego con Robux, VIP, estelas, monedas y ranking
+	    (los IDs de los productos se ponen en la sección 💰 TIENDA de abajo)
 ]]
 
 -- =====================================================================
@@ -32,6 +34,7 @@ local CollectionService = game:GetService("CollectionService")
 local DataStoreService = game:GetService("DataStoreService")
 local Debris = game:GetService("Debris")
 local Lighting = game:GetService("Lighting")
+local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
@@ -66,6 +69,24 @@ local Config = {
 	BOTON_ROJO_ESPERA = 25, -- segundos de recarga del botón rojo del lobby
 	GUARDAR_DATOS = true, -- guardar coronas, victorias y nivel (juego publicado)
 	QUITAR_BASEPLATE = true, -- quita el suelo gris de la plantilla "Baseplate"
+
+	-- 💰 TIENDA CON ROBUX
+	-- Crea los productos en create.roblox.com (tu experiencia → Monetization)
+	-- y pega aquí sus números de ID. Mira PUBLICAR.md para el paso a paso.
+	-- Mientras un ID sea 0: en Studio la compra es DE PRUEBA (gratis) y en el
+	-- juego publicado ese producto sale como "¡muy pronto!".
+	PASE_VIP = 0, -- Game Pass "VIP"
+	PRODUCTO_ELEGIR = 0, -- Developer Product "Elegir el próximo minijuego"
+	PRODUCTO_FIESTA = 0, -- Developer Product "Fiesta para todos"
+	PRODUCTO_MONEDAS = 0, -- Developer Product "Bolsa de monedas"
+	PRECIOS = { VIP = 199, Elegir = 25, Fiesta = 10, Monedas = 49 }, -- en Robux (solo para enseñarlos)
+	MONEDAS_POR_BOLSA = 1000,
+
+	-- 🪙 Monedas (se ganan jugando y sirven para comprar estelas)
+	MONEDAS_POR_PUNTO = 2, -- por cada punto de la ronda
+	MONEDAS_POR_RONDA = 5, -- solo por jugar la ronda
+	MONEDAS_CAMPEON = 100,
+	RECOMPENSA_DIARIA = 100, -- al entrar por primera vez cada día
 
 	-- 🗺️ Dónde está todo
 	LOBBY = Vector3.new(0, 50, 0),
@@ -394,6 +415,9 @@ type UIJugador = {
 	Info: TextLabel,
 	Poder: TextLabel,
 	Dobles: TextLabel,
+	Monedas: TextLabel,
+	SumaMonedas: number,
+	TokenMonedas: number,
 	Anuncio: TextLabel,
 	EscalaAnuncio: UIScale,
 	Subtitulo: TextLabel,
@@ -486,6 +510,9 @@ local CONSEJOS = {
 	"💡 Si te eliminan, verás la ronda desde la grada 👀",
 	"💡 Gana partidas para conseguir coronas 👑 y subir de nivel",
 	"💡 En Luz Roja, Luz Verde... ¡ni se te ocurra moverte en rojo! 🔴",
+	"💡 Detrás del cartel gigante está el 🛒 MERCADO: ¡elige tú el minijuego!",
+	"💡 Ganas 🪙 monedas en cada ronda: cámbialas por estelas en el Mercado ✨",
+	"💡 Entra cada día para cobrar tu 🎁 recompensa diaria",
 }
 
 local function crear(clase: string, props: { [string]: any }, padre: Instance?): any
@@ -988,6 +1015,9 @@ function UI.Crear(jugador: Player)
 		Info = pildora("Info", Color3.fromRGB(30, 144, 255), 2),
 		Poder = pildora("Poder", NARANJA, 3),
 		Dobles = pildora("Dobles", ROJO, 4),
+		Monedas = pildora("Monedas", Color3.fromRGB(226, 150, 30), 5),
+		SumaMonedas = 0,
+		TokenMonedas = 0,
 		Anuncio = anuncio,
 		EscalaAnuncio = escalaAnuncio,
 		Subtitulo = subtitulo,
@@ -1332,6 +1362,24 @@ function UI.Resultados(titulo: string, filas: { FilaResultado }, duracion: numbe
 	end)
 end
 
+-- Pastilla "🪙 +N" cuando ganas monedas (se suman si llegan seguidas).
+function UI.Monedas(jugador: Player, cantidad: number)
+	local ui = UI.Por[jugador]
+	if not ui then
+		return
+	end
+	ui.TokenMonedas += 1
+	local mio = ui.TokenMonedas
+	ui.SumaMonedas += cantidad
+	pildoraTexto(ui.Monedas, `🪙 +{ui.SumaMonedas}`)
+	task.delay(3, function()
+		if ui.TokenMonedas == mio then
+			ui.SumaMonedas = 0
+			pildoraTexto(ui.Monedas, nil)
+		end
+	end)
+end
+
 -- Pastilla naranja con el poder que tienes ahora (nil = quitarla).
 function UI.Poder(jugador: Player, textoPoder: string?, duracion: number?)
 	local ui = UI.Por[jugador]
@@ -1472,7 +1520,16 @@ end
 -- 👥 JUGADORES: aparecer, puntos, datos guardados y etiqueta de nombre
 -- =====================================================================
 
-type DatosGuardados = { Coronas: number, Victorias: number, Partidas: number, XP: number }
+type DatosGuardados = {
+	Coronas: number,
+	Victorias: number,
+	Partidas: number,
+	XP: number,
+	Monedas: number,
+	Estelas: { string }, -- estelas compradas
+	Estela: string?, -- estela puesta
+	UltimoDia: number, -- último día que cobró la recompensa diaria
+}
 type Estadisticas = { Martillazos: number, Mandados: number, Vuelos: number, Cajas: number }
 
 local Jugadores = {
@@ -1481,6 +1538,8 @@ local Jugadores = {
 	Stats = {} :: { [Player]: Estadisticas }, -- estadísticas de la partida (para los premios)
 	Escudo = {} :: { [Player]: number }, -- hasta cuándo tiene escudo
 	UltimoGolpe = {} :: { [Player]: { Por: Player, T: number } }, -- quién le golpeó por última vez
+	VIP = {} :: { [Player]: boolean }, -- tiene el pase VIP
+	AlCargar = nil :: ((Player) -> ())?, -- se llama cuando ya se han cargado sus datos
 }
 
 local cargando: { [Player]: boolean } = {}
@@ -1488,12 +1547,19 @@ local destinoAlAparecer: { [Player]: CFrame } = {}
 local datosCargados: { [Player]: boolean } = {}
 
 local almacen: DataStore? = nil
+local almacenRanking: OrderedDataStore? = nil
 if Config.GUARDAR_DATOS then
 	local ok, resultado = pcall(function()
 		return DataStoreService:GetDataStore("LocuraTotal_v2")
 	end)
 	if ok then
 		almacen = resultado
+	end
+	local okRanking, ranking = pcall(function()
+		return DataStoreService:GetOrderedDataStore("LocuraTotal_Coronas")
+	end)
+	if okRanking then
+		almacenRanking = ranking
 	end
 end
 
@@ -1577,7 +1643,12 @@ function Jugadores.ActualizarEtiqueta(jugador: Player)
 	local sub = etiqueta:FindFirstChild("Sub")
 	if sub and sub:IsA("TextLabel") then
 		local coronas = if datos.Coronas > 0 then ` · 👑{datos.Coronas}` else ""
-		sub.Text = `Nv {nivel} {Jugadores.Titulo(nivel)}{coronas}`
+		local vip = if Jugadores.VIP[jugador] then "⭐VIP · " else ""
+		sub.Text = `{vip}Nv {nivel} {Jugadores.Titulo(nivel)}{coronas}`
+	end
+	local monedasValor = valor(jugador, "Monedas")
+	if monedasValor then
+		monedasValor.Value = datos.Monedas
 	end
 	local nivelValor = valor(jugador, "Nivel")
 	if nivelValor then
@@ -1679,11 +1750,51 @@ function Jugadores.Guardar(jugador: Player)
 		return
 	end
 	local copia = table.clone(datos)
+	copia.Estelas = table.clone(datos.Estelas)
 	local ok, err = pcall(function()
 		tienda:SetAsync("jugador_" .. jugador.UserId, copia)
 	end)
 	if not ok then
 		warn("[LocuraTotal] No se pudieron guardar los datos:", err)
+	end
+	local ranking = almacenRanking
+	if ranking and datos.Coronas > 0 then
+		pcall(function()
+			ranking:SetAsync(tostring(jugador.UserId), datos.Coronas)
+		end)
+	end
+end
+
+-- Los 10 con más coronas de todos los tiempos (puede fallar: devuelve nil).
+function Jugadores.Ranking(): { { Id: number, Coronas: number } }?
+	local ranking = almacenRanking
+	if not ranking then
+		return nil
+	end
+	local ok, lista = pcall(function()
+		local paginas = ranking:GetSortedAsync(false, 10)
+		local resultado = {}
+		for _, entrada in paginas:GetCurrentPage() do
+			table.insert(resultado, { Id = tonumber(entrada.key) or 0, Coronas = entrada.value })
+		end
+		return resultado
+	end)
+	return if ok then lista else nil
+end
+
+-- Suma (o resta) monedas. Los VIP ganan el doble jugando.
+function Jugadores.SumarMonedas(jugador: Player, cantidad: number, jugando: boolean?)
+	local datos = Jugadores.Datos[jugador]
+	if not datos then
+		return
+	end
+	if jugando and Jugadores.VIP[jugador] then
+		cantidad *= 2
+	end
+	datos.Monedas = math.max(0, datos.Monedas + cantidad)
+	Jugadores.ActualizarEtiqueta(jugador)
+	if cantidad > 0 then
+		UI.Monedas(jugador, cantidad)
 	end
 end
 
@@ -1701,11 +1812,24 @@ local function cargarDatos(jugador: Player)
 	datosCargados[jugador] = true
 	local datos = Jugadores.Datos[jugador]
 	if datos and type(resultado) == "table" then
-		for _, campo in { "Coronas", "Victorias", "Partidas", "XP" } do
+		for _, campo in { "Coronas", "Victorias", "Partidas", "XP", "Monedas" } do
 			local guardado = resultado[campo]
 			if type(guardado) == "number" then
 				(datos :: any)[campo] += guardado
 			end
+		end
+		if type(resultado.Estelas) == "table" then
+			for _, id in resultado.Estelas do
+				if type(id) == "string" and not table.find(datos.Estelas, id) then
+					table.insert(datos.Estelas, id)
+				end
+			end
+		end
+		if type(resultado.Estela) == "string" and not datos.Estela then
+			datos.Estela = resultado.Estela
+		end
+		if type(resultado.UltimoDia) == "number" then
+			datos.UltimoDia = math.max(datos.UltimoDia, resultado.UltimoDia)
 		end
 		Jugadores.ActualizarEtiqueta(jugador)
 	end
@@ -1802,12 +1926,12 @@ local function alEntrar(jugador: Player)
 		return
 	end
 
-	Jugadores.Datos[jugador] = { Coronas = 0, Victorias = 0, Partidas = 0, XP = 0 }
+	Jugadores.Datos[jugador] = { Coronas = 0, Victorias = 0, Partidas = 0, XP = 0, Monedas = 0, Estelas = {}, UltimoDia = 0 }
 	Jugadores.Stats[jugador] = { Martillazos = 0, Mandados = 0, Vuelos = 0, Cajas = 0 }
 
 	local stats = Instance.new("Folder")
 	stats.Name = "leaderstats"
-	for _, nombre in { "Puntos", "Coronas", "Nivel" } do
+	for _, nombre in { "Puntos", "Coronas", "Nivel", "Monedas" } do
 		local v = Instance.new("IntValue")
 		v.Name = nombre
 		v.Value = if nombre == "Nivel" then 1 else 0
@@ -1824,7 +1948,13 @@ local function alEntrar(jugador: Player)
 	else
 		Jugadores.Reaparecer(jugador)
 	end
-	task.spawn(cargarDatos, jugador)
+	task.spawn(function()
+		cargarDatos(jugador)
+		local alCargar = Jugadores.AlCargar
+		if alCargar and jugador.Parent == Players then
+			alCargar(jugador)
+		end
+	end)
 end
 
 function Jugadores.Iniciar()
@@ -1843,6 +1973,7 @@ function Jugadores.Iniciar()
 		Jugadores.Stats[jugador] = nil
 		Jugadores.Escudo[jugador] = nil
 		Jugadores.UltimoGolpe[jugador] = nil
+		Jugadores.VIP[jugador] = nil
 		cargando[jugador] = nil
 		destinoAlAparecer[jugador] = nil
 		datosCargados[jugador] = nil
@@ -1877,6 +2008,28 @@ end
 -- =====================================================================
 -- 💥 EFECTOS: explosiones, empujones, confeti, fuegos artificiales
 -- =====================================================================
+
+-- ✨ Estelas que se compran con monedas en el Mercado (se ven siempre que te mueves).
+export type Estela = {
+	Id: string,
+	Nombre: string,
+	Precio: number,
+	Color: ColorSequence,
+	Brillo: boolean?,
+	SoloVIP: boolean?,
+}
+local ESTELAS: { Estela } = {
+	{ Id = "Chicle", Nombre = "🍬 Chicle", Precio = 300, Color = ColorSequence.new(Color3.fromRGB(255, 140, 200), BLANCO) },
+	{ Id = "Arcoiris", Nombre = "🌈 Arcoíris", Precio = 500, Color = arcoiris() },
+	{ Id = "Fuego", Nombre = "🔥 Fuego", Precio = 700, Color = ColorSequence.new(Color3.fromRGB(255, 230, 90), Color3.fromRGB(255, 60, 20)) },
+	{ Id = "Hielo", Nombre = "❄️ Hielo", Precio = 700, Color = ColorSequence.new(BLANCO, Color3.fromRGB(80, 200, 255)) },
+	{ Id = "Galaxia", Nombre = "🌌 Galaxia", Precio = 1500, Color = ColorSequence.new(Color3.fromRGB(190, 110, 255), Color3.fromRGB(40, 70, 220)), Brillo = true },
+	{ Id = "Oro", Nombre = "👑 Oro (VIP)", Precio = 0, Color = ColorSequence.new(Color3.fromRGB(255, 240, 150), Color3.fromRGB(255, 170, 30)), Brillo = true, SoloVIP = true },
+}
+local ESTELA_POR_ID: { [string]: Estela } = {}
+for _, estela in ESTELAS do
+	ESTELA_POR_ID[estela.Id] = estela
+end
 
 local Efectos = {}
 local tokenVuelo: { [Player]: number } = {}
@@ -1968,13 +2121,22 @@ function Efectos.Puf(posicion: Vector3, color: Color3)
 	rafaga(posicion, emisor, 0.2)
 end
 
--- Estela de color que deja el jugador al moverse durante las rondas.
-function Efectos.Estela(jugador: Player, color: Color3)
+-- Estela que deja el jugador al moverse: la que tenga puesta o, si no tiene
+-- ninguna, una de `color` (en las rondas). Sin estela ni color, se quita.
+function Efectos.Estela(jugador: Player, color: Color3?)
 	local raiz = Jugadores.Raiz(jugador)
 	if not raiz then
 		return
 	end
 	Efectos.QuitarEstela(jugador)
+	local datos = Jugadores.Datos[jugador]
+	local puesta = if datos and datos.Estela then ESTELA_POR_ID[datos.Estela] else nil
+	if puesta and puesta.SoloVIP and not Jugadores.VIP[jugador] then
+		puesta = nil
+	end
+	if not puesta and not color then
+		return
+	end
 	local arriba = Instance.new("Attachment")
 	arriba.Name = "EstelaArriba"
 	arriba.Position = Vector3.new(0, 0.9, 0)
@@ -1987,12 +2149,18 @@ function Efectos.Estela(jugador: Player, color: Color3)
 	estela.Name = "EstelaLoca"
 	estela.Attachment0 = arriba
 	estela.Attachment1 = abajo
-	estela.Color = ColorSequence.new(color, BLANCO)
+	estela.Color = if puesta then puesta.Color elseif color then ColorSequence.new(color, BLANCO) else ColorSequence.new(BLANCO)
 	estela.Transparency = NumberSequence.new(0.3, 1)
-	estela.Lifetime = 0.4
+	estela.Lifetime = if puesta then 0.6 else 0.4
 	estela.MinLength = 0.2
 	estela.LightEmission = 0.7
 	estela.FaceCamera = true
+	if puesta and puesta.Brillo then
+		estela.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		estela.TextureMode = Enum.TextureMode.Wrap
+		estela.TextureLength = 3
+		estela.LightEmission = 1
+	end
 	estela.Parent = raiz
 end
 
@@ -3574,7 +3742,7 @@ do
 			C.Disco(A - Vector3.new(0, 0.3, 0), RADIO_BASE + 1, 3.4, {
 				Name = "Borde",
 				Color = Color3.fromRGB(255, 107, 203),
-				Material = Enum.Material.Neon,
+				Material = Enum.Material.SmoothPlastic,
 				Parent = ronda.Carpeta,
 			})
 			local colores = { Color3.fromRGB(140, 200, 90), Color3.fromRGB(170, 190, 80), DORADO }
@@ -3582,7 +3750,7 @@ do
 				C.Disco(A + Vector3.new(0, piso.Altura, 0), piso.Radio, 4, {
 					Name = "Piso" .. i,
 					Color = colores[i],
-					Material = if i == #PISOS then Enum.Material.Neon else Enum.Material.Grass,
+					Material = if i == #PISOS then Enum.Material.SmoothPlastic else Enum.Material.Grass,
 					Parent = ronda.Carpeta,
 				})
 			end
@@ -3843,7 +4011,7 @@ do
 			C.Disco(A + Vector3.new(0, 2.5, 0), 6, 2.5, {
 				Name = "Centro",
 				Color = MORADO,
-				Material = Enum.Material.Neon,
+				Material = Enum.Material.SmoothPlastic,
 				Parent = ronda.Carpeta,
 			})
 			return C.Circulo(A, 26, 8)
@@ -3961,13 +4129,13 @@ do
 			C.Disco(A - Vector3.new(0, 0.3, 0), RADIO + 1, 2.6, {
 				Name = "Borde",
 				Color = MORADO,
-				Material = Enum.Material.Neon,
+				Material = Enum.Material.SmoothPlastic,
 				Parent = ronda.Carpeta,
 			})
 			local pilar = C.Disco(A + Vector3.new(0, 8, 0), 2.5, 8, {
 				Name = "Pilar",
 				Color = Color3.fromRGB(255, 107, 203),
-				Material = Enum.Material.Neon,
+				Material = Enum.Material.SmoothPlastic,
 				Parent = ronda.Carpeta,
 			})
 			table.clear(barras)
@@ -4036,26 +4204,47 @@ do
 end
 
 -- ---------------------------------------------------------------------
--- 🏁 CARRERA LOCA: lava, cinta, plataformas que parpadean, trampolines...
+-- 🏃 PARKOUR EXTREMO: un recorrido largo por secciones con puntos de control
 -- ---------------------------------------------------------------------
 do
-	local ANCHO = 26
-	local LARGO = 266
+	local ANCHO = 24
+	local LARGO = 300
 	local ALTO_SUPERIOR = 22
+	local SUELO_CLARO = Color3.fromRGB(236, 232, 244)
+	local SUELO_BORDE = Color3.fromRGB(92, 84, 128)
+	local COLORES_PILAR = {
+		Color3.fromRGB(255, 128, 110),
+		Color3.fromRGB(255, 192, 92),
+		Color3.fromRGB(110, 206, 168),
+		Color3.fromRGB(100, 168, 236),
+		Color3.fromRGB(170, 140, 228),
+	}
 
 	type Punto = { Z: number, Y: number, Destino: CFrame }
+	type Piston = { Parte: Part, Lado: number, Fuera: boolean }
 	local puntosControl: { Punto } = {}
 	local controlDe: { [Player]: number } = {}
 	local parpadeo: { { Parte: Part, Grupo: number } } = {}
+	local pistones: { Piston } = {}
 	local origenZ, metaZ, alturaMeta = 0, 0, 0
-	local barraMeta: Part? = nil
+	local barraParkour: Part? = nil
 
+	-- Suelo de dos tonos (borde oscuro debajo y superficie clara encima).
 	local function suelo(ronda: Ronda, nombre: string, z1: number, z2: number, y: number, ancho: number?, color: Color3?): Part
+		local a = ancho or ANCHO
+		local x = ronda.Centro.X
+		C.Parte({
+			Name = "Borde" .. nombre,
+			Size = Vector3.new(a + 1, 2.6, z2 - z1 + 1),
+			CFrame = CFrame.new(x, y - 1.5, (z1 + z2) / 2),
+			Color = SUELO_BORDE,
+			Parent = ronda.Carpeta,
+		})
 		return C.Parte({
 			Name = nombre,
-			Size = Vector3.new(ancho or ANCHO, 2, z2 - z1),
-			CFrame = CFrame.new(ronda.Centro.X, y - 1, (z1 + z2) / 2),
-			Color = color or Color3.fromRGB(235, 235, 245),
+			Size = Vector3.new(a, 2, z2 - z1),
+			CFrame = CFrame.new(x, y - 1, (z1 + z2) / 2),
+			Color = color or SUELO_CLARO,
 			Parent = ronda.Carpeta,
 		})
 	end
@@ -4073,29 +4262,72 @@ do
 		})
 	end
 
-	local function control(ronda: Ronda, z: number, y: number)
+	-- Punto de control: almohadilla verde y una bandera.
+	local function control(ronda: Ronda, z: number, y: number, ancho: number?)
 		local x = ronda.Centro.X
+		local a = ancho or ANCHO
 		C.Parte({
 			Name = "PuntoControl",
-			Size = Vector3.new(ANCHO, 0.2, 2),
+			Size = Vector3.new(a, 0.2, 2),
 			CFrame = CFrame.new(x, y + 0.05, z),
 			Color = VERDE,
 			Material = Enum.Material.Neon,
 			CanCollide = false,
 			CanQuery = false,
+			CastShadow = false,
+			Parent = ronda.Carpeta,
+		})
+		local mastil = Vector3.new(x - a / 2 + 1, y, z)
+		C.Parte({
+			Name = "Mastil",
+			Size = Vector3.new(0.5, 9, 0.5),
+			CFrame = CFrame.new(mastil + Vector3.new(0, 4.5, 0)),
+			Color = Color3.fromRGB(230, 230, 236),
+			Material = Enum.Material.Metal,
+			CanCollide = false,
+			Parent = ronda.Carpeta,
+		})
+		C.Parte({
+			Name = "Bandera",
+			Size = Vector3.new(3.2, 2, 0.15),
+			CFrame = CFrame.new(mastil + Vector3.new(1.85, 7.8, 0)),
+			Color = VERDE,
+			CanCollide = false,
 			Parent = ronda.Carpeta,
 		})
 		table.insert(puntosControl, { Z = z, Y = y, Destino = CFrame.lookAt(Vector3.new(x, y, z + 3), Vector3.new(x, y, z + 10)) })
 	end
 
+	-- Arco con cartel (salida y meta).
+	local function arco(ronda: Ronda, z: number, y: number, texto: string, color: Color3)
+		local x = ronda.Centro.X
+		for _, lado in { -1, 1 } do
+			C.Parte({
+				Name = "ColumnaArco",
+				Size = Vector3.new(2, 14, 2),
+				CFrame = CFrame.new(x + lado * (ANCHO / 2 - 1), y + 7, z),
+				Color = color,
+				Parent = ronda.Carpeta,
+			})
+		end
+		local cartel = C.Parte({
+			Name = "CartelArco",
+			Size = Vector3.new(ANCHO, 4, 1),
+			CFrame = CFrame.new(x, y + 15, z), -- la cara con el texto mira a los que llegan
+			Color = Color3.fromRGB(30, 36, 62),
+			Parent = ronda.Carpeta,
+		})
+		C.Cartel(cartel, Enum.NormalId.Front, texto, Color3.fromRGB(255, 220, 130), 20)
+	end
+
 	table.insert(MINIJUEGOS, {
 		Id = "CarreraLoca",
-		Nombre = "Carrera Loca",
-		Emoji = "🏁",
+		Nombre = "Parkour Extremo",
+		Emoji = "🏃",
 		Color = Color3.fromRGB(46, 204, 113),
-		Descripcion = "¡Carrera de obstáculos! Lava, cintas locas, plataformas que desaparecen y trampolines. ¡Llega a la META!",
+		Descripcion = "¡300 metros de parkour! Pilares sobre lava, cinta loca, barra barredora, plataformas que desaparecen, escalada y pistones. Las banderas verdes guardan tu progreso.",
 		Tipo = "carrera",
-		Duracion = 120,
+		Duracion = 150,
 		AlturaMuerte = -15,
 
 		Construir = function(ronda: Ronda): { CFrame }
@@ -4106,146 +4338,176 @@ do
 			table.clear(puntosControl)
 			table.clear(controlDe)
 			table.clear(parpadeo)
+			table.clear(pistones)
 
 			-- 1) Salida
-			suelo(ronda, "Salida", z0, z0 + 20, G, nil, Color3.fromRGB(30, 144, 255))
+			local salida = suelo(ronda, "Salida", z0, z0 + 24, G, nil, Color3.fromRGB(100, 168, 236))
+			salida.Material = Enum.Material.SmoothPlastic
 			control(ronda, z0 + 2, G)
+			arco(ronda, z0 + 22, G, "🏃 ¡A CORRER!", Color3.fromRGB(100, 168, 236))
 
-			-- 2) Piedras sobre lava
-			lava(ronda, z0 + 20, z0 + 66, G - 6)
-			for fila = 0, 4 do
-				local columnas = { -8, 0, 8 }
+			-- 2) Pilares de colores sobre la lava (cada uno a una altura)
+			lava(ronda, z0 + 24, z0 + 78, G - 8)
+			for fila = 0, 5 do
+				local columnas = { -7, 0, 7 }
 				table.remove(columnas, math.random(1, 3))
 				for _, x in columnas do
-					C.Parte({
-						Name = "Piedra",
-						Size = Vector3.new(6, 1.5, 6),
-						CFrame = CFrame.new(A.X + x + math.random(-2, 2), G - 0.75 + math.random(0, 2), z0 + 25 + fila * 8.5),
-						Color = Config.COLORES[(fila % #Config.COLORES) + 1],
+					local alto = G + ({ 0, 1.5, 3 })[math.random(1, 3)]
+					C.Disco(Vector3.new(A.X + x, alto, z0 + 29 + fila * 8.8), 2.6, 12, {
+						Name = "Pilar",
+						Color = COLORES_PILAR[(fila % #COLORES_PILAR) + 1],
 						Parent = ronda.Carpeta,
 					})
 				end
 			end
 
-			-- 3) Cinta loca que te empuja hacia atrás
-			suelo(ronda, "Descanso1", z0 + 64, z0 + 74, G)
-			control(ronda, z0 + 66, G)
-			local cinta = suelo(ronda, "CintaLoca", z0 + 74, z0 + 110, G, nil, Color3.fromRGB(50, 50, 60))
+			-- 3) Cinta loca que te empuja hacia atrás (con bolardos)
+			suelo(ronda, "Descanso1", z0 + 78, z0 + 88, G)
+			control(ronda, z0 + 80, G)
+			local cinta = suelo(ronda, "CintaLoca", z0 + 88, z0 + 126, G, nil, Color3.fromRGB(60, 58, 72))
 			cinta.AssemblyLinearVelocity = Vector3.new(0, 0, -11)
-			for i = 0, 5 do
+			for i = 0, 6 do
 				C.Parte({
 					Name = "Flecha",
-					Size = Vector3.new(ANCHO - 4, 0.1, 1),
-					CFrame = CFrame.new(A.X, G + 0.05, z0 + 77 + i * 6),
-					Color = Color3.fromRGB(255, 221, 89),
+					Size = Vector3.new(ANCHO - 6, 0.1, 1),
+					CFrame = CFrame.new(A.X, G + 0.05, z0 + 91 + i * 5.2),
+					Color = Color3.fromRGB(255, 205, 90),
 					Material = Enum.Material.Neon,
 					CanCollide = false,
 					CanQuery = false,
+					CastShadow = false,
 					Parent = ronda.Carpeta,
 				})
 			end
 			for _, x in { -ANCHO / 2 - 0.5, ANCHO / 2 + 0.5 } do
 				C.Parte({
 					Name = "Baranda",
-					Size = Vector3.new(1, 2, 36),
-					CFrame = CFrame.new(A.X + x, G + 1, z0 + 92),
-					Color = ROJO,
+					Size = Vector3.new(1, 2.4, 38),
+					CFrame = CFrame.new(A.X + x, G + 1.2, z0 + 107),
+					Color = Color3.fromRGB(255, 128, 110),
 					Parent = ronda.Carpeta,
 				})
 			end
-			for _, pos in { Vector3.new(-6, 0, 86), Vector3.new(6, 0, 98) } do
-				C.Parte({
-					Name = "Poste",
-					Size = Vector3.new(3, 6, 3),
-					CFrame = CFrame.new(A.X + pos.X, G + 3, z0 + pos.Z),
-					Color = NARANJA,
+			for _, pos in { Vector3.new(-6, 0, 98), Vector3.new(5, 0, 106), Vector3.new(-2, 0, 115) } do
+				C.Disco(Vector3.new(A.X + pos.X, G + 3.5, z0 + pos.Z), 1.4, 3.5, {
+					Name = "Bolardo",
+					Color = Color3.fromRGB(255, 192, 92),
 					Parent = ronda.Carpeta,
 				})
 			end
 
-			-- 4) Plataformas que parpadean
-			suelo(ronda, "Descanso2", z0 + 110, z0 + 118, G)
-			control(ronda, z0 + 112, G)
-			lava(ronda, z0 + 118, z0 + 158, G - 6)
-			for fila = 0, 4 do
+			-- 4) Barra barredora: ¡salta por encima!
+			suelo(ronda, "Descanso2", z0 + 126, z0 + 134, G)
+			control(ronda, z0 + 128, G)
+			C.Disco(Vector3.new(A.X, G, z0 + 152), 18, 2, {
+				Name = "DiscoBarredora",
+				Color = Color3.fromRGB(255, 220, 130),
+				Parent = ronda.Carpeta,
+			})
+			C.Disco(Vector3.new(A.X, G - 0.4, z0 + 152), 18.8, 2, {
+				Name = "BordeBarredora",
+				Color = SUELO_BORDE,
+				Parent = ronda.Carpeta,
+			})
+			barraParkour = C.BarraGiratoria(Vector3.new(A.X, G + 1.2, z0 + 152), 34, 1.4, Color3.fromRGB(240, 80, 90), ronda.Carpeta)
+			lava(ronda, z0 + 134, z0 + 170, G - 8)
+
+			-- 5) Plataformas que desaparecen (las que se van a ir se ponen rojas)
+			suelo(ronda, "Descanso3", z0 + 170, z0 + 178, G)
+			control(ronda, z0 + 172, G)
+			lava(ronda, z0 + 178, z0 + 216, G - 8)
+			for fila = 0, 3 do
 				for columna = -1, 1 do
 					local parte = C.Parte({
 						Name = "Parpadeo",
-						Size = Vector3.new(7, 1, 6.5),
-						CFrame = CFrame.new(A.X + columna * 8.5, G - 0.5, z0 + 122 + fila * 8),
+						Size = Vector3.new(6.5, 1, 6.5),
+						CFrame = CFrame.new(A.X + columna * 8, G - 0.5, z0 + 183 + fila * 8.5),
 						Color = CIAN,
-						Material = Enum.Material.Neon,
 						Parent = ronda.Carpeta,
 					})
 					table.insert(parpadeo, { Parte = parte, Grupo = (fila + columna) % 2 })
 				end
 			end
 
-			-- 5) Trampolines para subir el muro
-			suelo(ronda, "Descanso3", z0 + 158, z0 + 170, G)
-			control(ronda, z0 + 160, G)
-			for _, x in { -8, 0, 8 } do
-				C.Disco(Vector3.new(A.X + x, G + 0.4, z0 + 165), 3.2, 0.4, {
-					Name = "Trampolin",
-					Color = Color3.fromRGB(255, 107, 203),
-					Material = Enum.Material.Neon,
-					Tags = { "Impulso" },
-					Atributos = { Impulso = Vector3.new(0, 120, 14) },
-					Parent = ronda.Carpeta,
-				})
-			end
+			-- 6) Muro de escalada (escaleras de barrotes) o trampolines
+			suelo(ronda, "Descanso4", z0 + 216, z0 + 226, G)
+			control(ronda, z0 + 218, G)
 			C.Parte({
 				Name = "Muro",
 				Size = Vector3.new(ANCHO, ALTO_SUPERIOR, 2),
-				CFrame = CFrame.new(A.X, G + ALTO_SUPERIOR / 2 - 1, z0 + 171),
-				Color = MORADO,
+				CFrame = CFrame.new(A.X, G + ALTO_SUPERIOR / 2 - 1, z0 + 227),
+				Color = Color3.fromRGB(170, 140, 228),
+				Parent = ronda.Carpeta,
+			})
+			for _, x in { -7, 7 } do
+				local escalera = Instance.new("TrussPart")
+				escalera.Name = "Escalera"
+				escalera.Anchored = true
+				escalera.Size = Vector3.new(2, ALTO_SUPERIOR + 2, 2)
+				escalera.CFrame = CFrame.new(A.X + x, G + ALTO_SUPERIOR / 2, z0 + 225)
+				escalera.Color = Color3.fromRGB(230, 230, 236)
+				escalera.Parent = ronda.Carpeta
+			end
+			C.Disco(Vector3.new(A.X, G + 0.4, z0 + 221), 3, 0.4, {
+				Name = "Trampolin",
+				Color = Color3.fromRGB(246, 132, 188),
+				Tags = { "Impulso" },
+				Atributos = { Impulso = Vector3.new(0, 125, 14) },
 				Parent = ronda.Carpeta,
 			})
 
-			-- 6) Arriba: licuadora pequeña
-			suelo(ronda, "Arriba1", z0 + 170, z0 + 186, U)
-			control(ronda, z0 + 174, U)
-			C.Disco(Vector3.new(A.X, U, z0 + 202), 16, 2, {
-				Name = "DiscoLicuadora",
-				Color = Color3.fromRGB(255, 221, 89),
-				Parent = ronda.Carpeta,
-			})
-			barraMeta = C.BarraGiratoria(Vector3.new(A.X, U + 1.2, z0 + 202), 32, 1.4, ROJO, ronda.Carpeta)
-
-			-- 7) Puente estrecho y META
-			suelo(ronda, "Arriba2", z0 + 217, z0 + 228, U)
-			control(ronda, z0 + 220, U)
-			suelo(ronda, "Puente", z0 + 228, z0 + 250, U, 5, NARANJA)
-			suelo(ronda, "Meta", z0 + 250, z0 + LARGO, U, nil, VERDE)
-			metaZ, alturaMeta = z0 + 254, U
-			for _, x in { -ANCHO / 2 + 1, ANCHO / 2 - 1 } do
+			-- 7) Arriba: pasillo con pistones que te empujan
+			suelo(ronda, "Arriba1", z0 + 226, z0 + 266, U, 12)
+			control(ronda, z0 + 230, U, 12)
+			for k = 0, 3 do
+				local lado = if k % 2 == 0 then -1 else 1
+				local parte = C.Parte({
+					Name = "Piston",
+					Size = Vector3.new(6, 4, 4),
+					CFrame = CFrame.new(A.X + lado * 9, U + 2, z0 + 238 + k * 7.5),
+					Color = Color3.fromRGB(255, 128, 110),
+					Parent = ronda.Carpeta,
+				})
 				C.Parte({
-					Name = "ColumnaMeta",
-					Size = Vector3.new(2, 14, 2),
-					CFrame = CFrame.new(A.X + x, U + 7, metaZ),
-					Color = BLANCO,
+					Name = "Cilindro",
+					Shape = Enum.PartType.Cylinder,
+					Size = Vector3.new(4, 2, 2),
+					CFrame = CFrame.new(A.X + lado * 13, U + 2, z0 + 238 + k * 7.5),
+					Color = Color3.fromRGB(64, 62, 76),
+					Material = Enum.Material.Metal,
+					Parent = ronda.Carpeta,
+				})
+				table.insert(pistones, { Parte = parte, Lado = lado, Fuera = false })
+			end
+
+			-- 8) Puente en zigzag
+			local zigzag = { -4, 4, -4 }
+			for i, x in zigzag do
+				local z1 = z0 + 266 + (i - 1) * 8
+				C.Parte({
+					Name = "Zigzag",
+					Size = Vector3.new(4, 2, 9),
+					CFrame = CFrame.new(A.X + x, U - 1, z1 + 4),
+					Color = Color3.fromRGB(255, 192, 92),
 					Parent = ronda.Carpeta,
 				})
 			end
-			local cartel = C.Parte({
-				Name = "CartelMeta",
-				Size = Vector3.new(ANCHO, 4, 1),
-				CFrame = CFrame.new(A.X, U + 15, metaZ) * CFrame.Angles(0, math.pi, 0),
-				Color = OSCURO,
-				Parent = ronda.Carpeta,
-			})
-			C.Cartel(cartel, Enum.NormalId.Front, "🏁 META 🏁", Color3.fromRGB(255, 221, 89), 20)
+
+			-- 9) META
+			suelo(ronda, "Meta", z0 + 290, z0 + LARGO + 6, U, nil, Color3.fromRGB(110, 206, 168))
+			metaZ, alturaMeta = z0 + 294, U
+			arco(ronda, metaZ, U, "🏁 META 🏁", Color3.fromRGB(255, 192, 92))
 			return C.Parrilla(Vector3.new(A.X, G, z0 + 10), 4, 2, 5)
 		end,
 
 		Iniciar = function(ronda: Ronda)
-			local barra = barraMeta
+			local barra = barraParkour
 			local bisagra = if barra then barra:FindFirstChildOfClass("HingeConstraint") else nil
 			if bisagra then
-				bisagra.AngularVelocity = 1.7
+				bisagra.AngularVelocity = 1.6
 			end
 
-			-- Lava: si la tocas, vuelves al último punto de control.
+			-- Lava: si la tocas, vuelves a la última bandera.
 			for _, parte in ronda.Carpeta:GetChildren() do
 				if parte:IsA("BasePart") and parte.Name == "Lava" then
 					ronda:Conectar(parte.Touched, function(otra: BasePart)
@@ -4257,7 +4519,7 @@ do
 				end
 			end
 
-			-- Plataformas que parpadean (las que se van a ir, se ponen rojas).
+			-- Plataformas que desaparecen
 			task.spawn(function()
 				local grupoActivo = 0
 				while ronda.Activa do
@@ -4267,7 +4529,7 @@ do
 						p.Parte.Transparency = if activa then 0 else 0.85
 						p.Parte.Color = CIAN
 					end
-					if not ronda:Esperar(1.3) then
+					if not ronda:Esperar(1.4) then
 						break
 					end
 					for _, p in parpadeo do
@@ -4275,12 +4537,36 @@ do
 							p.Parte.Color = ROJO
 						end
 					end
-					if not ronda:Esperar(0.5) then
+					if not ronda:Esperar(0.6) then
 						break
 					end
 					grupoActivo = 1 - grupoActivo
 				end
 			end)
+
+			-- Pistones: salen y entran por turnos
+			for k, piston in pistones do
+				task.spawn(function()
+					local parte = piston.Parte
+					local dentro = parte.CFrame
+					local fuera = dentro - Vector3.new(piston.Lado * 6, 0, 0)
+					if not ronda:Esperar(0.5 + (k % 2) * 1.1) then
+						return
+					end
+					while ronda.Activa do
+						TweenService:Create(parte, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { CFrame = fuera }):Play()
+						piston.Fuera = true
+						if not ronda:Esperar(0.7) then
+							break
+						end
+						piston.Fuera = false
+						TweenService:Create(parte, TweenInfo.new(0.5), { CFrame = dentro }):Play()
+						if not ronda:Esperar(1.5) then
+							break
+						end
+					end
+				end)
+			end
 
 			local ultimoGolpe: { [Player]: number } = {}
 			ronda:Bucle(0.05, function()
@@ -4288,18 +4574,25 @@ do
 					local raiz = Jugadores.Raiz(jugador)
 					if raiz then
 						local pos = raiz.Position
+						-- Lo lejos que ha llegado (para el ranking si no llega a la meta)
 						local recorrido = math.max(0, pos.Z - origenZ)
 						if recorrido > ronda:ObtenerPuntaje(jugador) and pos.Y > ronda.Centro.Y - 4 then
 							ronda:FijarPuntaje(jugador, recorrido)
 						end
+						-- Banderas de control
 						local actual = controlDe[jugador] or 1
 						for i = actual + 1, #puntosControl do
 							local punto = puntosControl[i]
 							if pos.Z >= punto.Z and pos.Y >= punto.Y - 2 then
 								controlDe[jugador] = i
+								if i > 1 then
+									UI.Anuncio("🚩 ¡Punto de control!", { Color = VERDE, Duracion = 1.2 }, jugador)
+								end
 							end
 						end
-						if barra and barra.Parent and os.clock() - (ultimoGolpe[jugador] or 0) > 1 then
+						local libre = os.clock() - (ultimoGolpe[jugador] or 0) > 1
+						-- Barra barredora
+						if barra and barra.Parent and libre then
 							local centro = barra.Position
 							local rel = pos - centro
 							local dir = barra.CFrame.RightVector
@@ -4308,7 +4601,23 @@ do
 							local pies = pos.Y - 3 * ronda.Escala
 							if perp < ronda.Escala + 1 and largo < 17 and pies < centro.Y + 0.7 and pos.Y + 1.8 * ronda.Escala > centro.Y - 0.7 then
 								ultimoGolpe[jugador] = os.clock()
+								libre = false
 								Efectos.Empujar(jugador, Vector3.new(if rel.X >= 0 then 60 else -60, 50, -20), 1.2)
+							end
+						end
+						-- Pistones
+						if libre then
+							for _, piston in pistones do
+								local p = piston.Parte
+								if piston.Fuera and p.Parent then
+									local rel = p.CFrame:PointToObjectSpace(pos)
+									local mitad = p.Size / 2
+									if math.abs(rel.Z) < mitad.Z + 1.2 and math.abs(rel.Y) < mitad.Y + 3 and math.abs(rel.X) < mitad.X + 1.5 then
+										ultimoGolpe[jugador] = os.clock()
+										Efectos.Empujar(jugador, Vector3.new(-piston.Lado * 75, 35, 0), 1)
+										break
+									end
+								end
 							end
 						end
 						if pos.Z >= metaZ and pos.Y >= alturaMeta - 2 then
@@ -4322,7 +4631,7 @@ do
 		AlCaer = function(ronda: Ronda, jugador: Player)
 			local punto = puntosControl[controlDe[jugador] or 1]
 			if punto then
-				ronda:Teletransportar(jugador, punto.Destino + Vector3.new(math.random(-8, 8), 0, 0))
+				ronda:Teletransportar(jugador, punto.Destino + Vector3.new(math.random(-6, 6), 0, 0))
 			end
 		end,
 	})
@@ -4360,7 +4669,7 @@ do
 			C.Disco(A - Vector3.new(0, 0.4, 0), RADIO_INICIAL + 1, 3.4, {
 				Name = "BordeHielo",
 				Color = CIAN,
-				Material = Enum.Material.Neon,
+				Material = Enum.Material.SmoothPlastic,
 				Parent = ronda.Carpeta,
 			})
 			C.Parte({
@@ -4656,7 +4965,7 @@ do
 				Size = Vector3.new(N * PASO + 3, 1, N * PASO + 3),
 				CFrame = CFrame.new(A - Vector3.new(0, 1.6, 0)),
 				Color = Color3.fromRGB(40, 40, 60),
-				Material = Enum.Material.Neon,
+				Material = Enum.Material.SmoothPlastic,
 				Parent = ronda.Carpeta,
 			})
 			return C.Circulo(A, 30, 8)
@@ -5171,7 +5480,7 @@ do
 						Size = Vector3.new(tramo[2] - tramo[1], altura, 2),
 						CFrame = CFrame.new(A.X + (tramo[1] + tramo[2]) / 2, A.Y + altura / 2, zInicio),
 						Color = color,
-						Material = Enum.Material.Neon,
+						Material = Enum.Material.SmoothPlastic,
 						CanCollide = false,
 						CanQuery = false,
 						CanTouch = false,
@@ -5320,7 +5629,7 @@ do
 			C.Disco(A - Vector3.new(0, 0.3, 0), RADIO + 1, 3.4, {
 				Name = "Borde",
 				Color = CIAN,
-				Material = Enum.Material.Neon,
+				Material = Enum.Material.SmoothPlastic,
 				Parent = ronda.Carpeta,
 			})
 			for i = 1, 6 do
@@ -6424,11 +6733,325 @@ function Impulsos.Iniciar()
 end
 
 -- =====================================================================
+-- 💰 TIENDA: Robux (VIP, elegir minijuego, fiesta, monedas) y estelas
+-- Los puestos están en la isla del Mercado (detrás del cartel del título).
+-- =====================================================================
+
+type Eleccion = { Jugador: Player, Minijuego: Minijuego }
+
+local Tienda = {
+	Cola = {} :: { Eleccion }, -- minijuegos ya pagados, en orden
+	Billetes = {} :: { [Player]: number }, -- "elegir minijuego" pagados sin usar
+}
+local eleccionPendiente: { [Player]: Minijuego } = {}
+local yaProcesadas: { [string]: boolean } = {}
+local filasRanking: { TextLabel } = {}
+local nombresCache: { [number]: string } = {}
+
+local function avisar(jugador: Player, titulo: string, sub: string?, color: Color3?)
+	UI.Anuncio(titulo, { Subtitulo = sub, Color = color or DORADO, Duracion = 3 }, jugador)
+end
+
+function Tienda.Encolar(jugador: Player, minijuego: Minijuego)
+	table.insert(Tienda.Cola, { Jugador = jugador, Minijuego = minijuego })
+	local rondas = #Tienda.Cola
+	avisar(
+		jugador,
+		`🎟️ ¡Has elegido {minijuego.Emoji} {minijuego.Nombre}!`,
+		if rondas == 1 then "Se jugará en la próxima ronda" else `Se jugará dentro de {rondas} rondas`
+	)
+	UI.Feed(`🎟️ {jugador.DisplayName} ha elegido {minijuego.Emoji} {minijuego.Nombre}`)
+	sonidoGlobal(SONIDOS.Pip, 0.6, 1.4)
+end
+
+-- El siguiente minijuego pagado (o nil si no hay ninguno).
+function Tienda.SiguienteElegido(): Eleccion?
+	return table.remove(Tienda.Cola, 1)
+end
+
+-- ----- Lo que da cada compra -----
+
+local function darEleccion(jugador: Player)
+	local minijuego = eleccionPendiente[jugador]
+	eleccionPendiente[jugador] = nil
+	if minijuego then
+		Tienda.Encolar(jugador, minijuego)
+	else
+		Tienda.Billetes[jugador] = (Tienda.Billetes[jugador] or 0) + 1
+		avisar(jugador, "🎟️ ¡Tienes un billete!", "Ve a la máquina del Mercado y elige el minijuego")
+	end
+end
+
+local function darFiesta(jugador: Player)
+	UI.Anuncio(`🎉 ¡{jugador.DisplayName} invita a una FIESTA!`, {
+		Subtitulo = "¡+25 🪙 para todos!",
+		Color = Config.COLORES[7],
+		Duracion = 4,
+	})
+	UI.Feed(`🎉 {jugador.DisplayName} ha montado una fiesta para todos`)
+	for _, otro in Players:GetPlayers() do
+		Jugadores.SumarMonedas(otro, 25)
+		local raiz = Jugadores.Raiz(otro)
+		if raiz then
+			Efectos.Confeti(raiz.Position + Vector3.new(0, 6, 0), 80)
+		end
+	end
+	task.spawn(function()
+		for _ = 1, 16 do
+			Efectos.FuegoArtificial(Config.LOBBY + Vector3.new(math.random(-60, 60), 2, math.random(-60, 60)))
+			task.wait(0.2)
+		end
+	end)
+	sonidoGlobal(SONIDOS.Pip, 0.7, 1.3)
+end
+
+local function darMonedas(jugador: Player)
+	Jugadores.SumarMonedas(jugador, Config.MONEDAS_POR_BOLSA)
+	avisar(jugador, `🪙 ¡+{Config.MONEDAS_POR_BOLSA} MONEDAS!`, "Gástalas en estelas en el Mercado ✨")
+end
+
+local function darVIP(jugador: Player)
+	Jugadores.VIP[jugador] = true
+	Jugadores.ActualizarEtiqueta(jugador)
+	avisar(jugador, "⭐ ¡AHORA ERES VIP!", "x2 monedas · voto doble · estela de oro")
+	UI.Feed(`⭐ {jugador.DisplayName} ahora es VIP`)
+	Efectos.Confeti(Config.LOBBY + Vector3.new(0, 10, -175), 120)
+end
+
+local PRODUCTOS: { [string]: { Id: number, Dar: (Player) -> () } } = {
+	Elegir = { Id = Config.PRODUCTO_ELEGIR, Dar = darEleccion },
+	Fiesta = { Id = Config.PRODUCTO_FIESTA, Dar = darFiesta },
+	Monedas = { Id = Config.PRODUCTO_MONEDAS, Dar = darMonedas },
+}
+
+-- ----- Comprar -----
+
+-- Con ID 0: en Studio es una compra de prueba y en el juego publicado, "muy pronto".
+local function sinConfigurar(jugador: Player, dar: (Player) -> ())
+	if RunService:IsStudio() then
+		avisar(jugador, "🧪 Compra de prueba", "En Studio es gratis. Pon el ID real en la Config para venderlo.", CIAN)
+		dar(jugador)
+		Jugadores.Guardar(jugador)
+	else
+		avisar(jugador, "🛒 ¡Muy pronto!", "Esta parte de la tienda todavía no está abierta", NARANJA)
+	end
+end
+
+function Tienda.Comprar(jugador: Player, clave: string)
+	local producto = PRODUCTOS[clave]
+	if not producto then
+		return
+	end
+	if producto.Id == 0 then
+		sinConfigurar(jugador, producto.Dar)
+		return
+	end
+	pcall(function()
+		MarketplaceService:PromptProductPurchase(jugador, producto.Id)
+	end)
+end
+
+function Tienda.ComprarVIP(jugador: Player)
+	if Jugadores.VIP[jugador] then
+		avisar(jugador, "⭐ ¡Ya eres VIP!", "Gracias por apoyar el juego 💛")
+	elseif Config.PASE_VIP == 0 then
+		sinConfigurar(jugador, darVIP)
+	else
+		pcall(function()
+			MarketplaceService:PromptGamePassPurchase(jugador, Config.PASE_VIP)
+		end)
+	end
+end
+
+-- Alguien pulsa un botón de la máquina de minijuegos.
+local MAX_COLA = 3
+function Tienda.ElegirMinijuego(jugador: Player, minijuego: Minijuego)
+	if #Tienda.Cola >= MAX_COLA then
+		-- Se avisa ANTES de cobrar: así nadie paga por esperar demasiado
+		avisar(jugador, "⏳ ¡Ya hay 3 minijuegos elegidos!", "Espera a que se juegue alguno y vuelve a probar", NARANJA)
+		return
+	end
+	local billetes = Tienda.Billetes[jugador] or 0
+	if billetes > 0 then
+		Tienda.Billetes[jugador] = billetes - 1
+		Tienda.Encolar(jugador, minijuego)
+		return
+	end
+	eleccionPendiente[jugador] = minijuego
+	Tienda.Comprar(jugador, "Elegir")
+end
+
+-- Comprar, ponerse o quitarse una estela (con monedas).
+function Tienda.UsarEstela(jugador: Player, estela: Estela)
+	local datos = Jugadores.Datos[jugador]
+	if not datos then
+		return
+	end
+	if estela.SoloVIP and not Jugadores.VIP[jugador] then
+		avisar(jugador, "👑 Solo para VIP", "Hazte VIP en el puesto dorado del Mercado")
+		return
+	end
+	local tiene = estela.SoloVIP or table.find(datos.Estelas, estela.Id) ~= nil
+	if not tiene then
+		if datos.Monedas < estela.Precio then
+			avisar(jugador, "🪙 Te faltan monedas", `Necesitas {estela.Precio - datos.Monedas} 🪙 más. ¡Juega rondas para ganarlas!`, NARANJA)
+			return
+		end
+		Jugadores.SumarMonedas(jugador, -estela.Precio)
+		table.insert(datos.Estelas, estela.Id)
+		datos.Estela = estela.Id
+		avisar(jugador, `✨ ¡{estela.Nombre} comprada!`, "Ya la llevas puesta")
+		UI.Feed(`✨ {jugador.DisplayName} estrena la estela {estela.Nombre}`)
+		Jugadores.Guardar(jugador)
+	elseif datos.Estela == estela.Id then
+		datos.Estela = nil
+		avisar(jugador, "Estela quitada", nil, BLANCO)
+	else
+		datos.Estela = estela.Id
+		avisar(jugador, `✨ Llevas {estela.Nombre}`)
+	end
+	if not Jugadores.EnRonda[jugador] then
+		Efectos.Estela(jugador, nil)
+	end
+end
+
+-- ----- Ranking de coronas (todos los servidores) -----
+
+function Tienda.RegistrarRanking(filas: { TextLabel })
+	filasRanking = filas
+end
+
+function Tienda.ActualizarRanking()
+	if #filasRanking == 0 then
+		return
+	end
+	local lista = Jugadores.Ranking()
+	for i, fila in filasRanking do
+		local dato = if lista then lista[i] else nil
+		if dato then
+			local nombre = nombresCache[dato.Id]
+			if not nombre then
+				local ok, resultado = pcall(function()
+					return Players:GetNameFromUserIdAsync(dato.Id)
+				end)
+				nombre = if ok and type(resultado) == "string" then resultado else `Jugador {dato.Id}`
+				nombresCache[dato.Id] = nombre
+			end
+			local medalla = ({ "🥇", "🥈", "🥉" })[i] or `{i}.`
+			fila.Text = `{medalla} {nombre} — 👑 {dato.Coronas}`
+		elseif i == 1 and not lista then
+			fila.Text = "🔒 El ranking sale en el juego publicado"
+		else
+			fila.Text = if i == 1 then "¡Sé el primero en ganar una corona!" else "—"
+		end
+	end
+end
+
+-- ----- Al entrar: VIP y recompensa diaria -----
+
+local function alCargarDatos(jugador: Player)
+	local datos = Jugadores.Datos[jugador]
+	if not datos then
+		return
+	end
+	if Config.PASE_VIP ~= 0 then
+		local ok, tiene = pcall(function()
+			return MarketplaceService:UserOwnsGamePassAsync(jugador.UserId, Config.PASE_VIP)
+		end)
+		if ok and tiene then
+			Jugadores.VIP[jugador] = true
+			Jugadores.ActualizarEtiqueta(jugador)
+		end
+	end
+	local hoy = math.floor(os.time() / 86400)
+	if datos.UltimoDia ~= hoy then
+		datos.UltimoDia = hoy
+		local premio = Config.RECOMPENSA_DIARIA * (if Jugadores.VIP[jugador] then 2 else 1)
+		task.delay(4, function()
+			if jugador.Parent == Players then
+				Jugadores.SumarMonedas(jugador, premio)
+				avisar(jugador, `🎁 ¡Recompensa diaria: +{premio} 🪙!`, "¡Vuelve mañana a por más!")
+			end
+		end)
+	end
+	if not Jugadores.EnRonda[jugador] then
+		Efectos.Estela(jugador, nil)
+	end
+end
+
+function Tienda.Iniciar()
+	Jugadores.AlCargar = alCargarDatos
+
+	-- Las compras con Robux llegan aquí (aunque el jugador cambie de servidor).
+	pcall(function()
+		MarketplaceService.ProcessReceipt = function(recibo: any): Enum.ProductPurchaseDecision
+			local id = tostring(recibo.PurchaseId)
+			if yaProcesadas[id] then
+				return Enum.ProductPurchaseDecision.PurchaseGranted
+			end
+			local jugador = Players:GetPlayerByUserId(recibo.PlayerId)
+			if not jugador then
+				return Enum.ProductPurchaseDecision.NotProcessedYet
+			end
+			for _, producto in PRODUCTOS do
+				if producto.Id ~= 0 and producto.Id == recibo.ProductId then
+					local ok = pcall(producto.Dar, jugador)
+					if not ok then
+						return Enum.ProductPurchaseDecision.NotProcessedYet
+					end
+					yaProcesadas[id] = true
+					Jugadores.Guardar(jugador)
+					return Enum.ProductPurchaseDecision.PurchaseGranted
+				end
+			end
+			return Enum.ProductPurchaseDecision.NotProcessedYet
+		end
+	end)
+	pcall(function()
+		MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(jugador: Player, pase: number, comprado: boolean)
+			if comprado and pase == Config.PASE_VIP and not Jugadores.VIP[jugador] then
+				darVIP(jugador)
+			end
+		end)
+	end)
+
+	-- La estela puesta se ve también en el lobby
+	local function vigilar(jugador: Player)
+		jugador.CharacterAdded:Connect(function()
+			task.wait(1)
+			if not Jugadores.EnRonda[jugador] then
+				Efectos.Estela(jugador, nil)
+			end
+		end)
+	end
+	Players.PlayerAdded:Connect(vigilar)
+	for _, jugador in Players:GetPlayers() do
+		vigilar(jugador)
+	end
+	Players.PlayerRemoving:Connect(function(jugador)
+		eleccionPendiente[jugador] = nil
+		Tienda.Billetes[jugador] = nil
+	end)
+
+	-- Guardado automático y ranking
+	task.spawn(function()
+		while true do
+			Tienda.ActualizarRanking()
+			task.wait(120)
+			for _, jugador in Players:GetPlayers() do
+				Jugadores.Guardar(jugador)
+			end
+		end
+	end)
+end
+
+-- =====================================================================
 -- 🌅 PAISAJE: cielo de atardecer, mar, montañas, nubes e islas flotantes
 -- =====================================================================
 
 local Paisaje = {}
 local ISLA_SECRETA = Config.LOBBY + Vector3.new(205, 0, 0)
+local MERCADO = Config.LOBBY + Vector3.new(0, 0, -175)
 
 local function efectoLuz(nombre: string, clase: string): any
 	local existente = Lighting:FindFirstChild(nombre)
@@ -6721,7 +7344,7 @@ function Paisaje.Construir()
 		{ centro = Vector3.new(-170, 72, -70), radio = 18 },
 		{ centro = Vector3.new(-135, 98, 140), radio = 13 },
 		{ centro = Vector3.new(150, 88, -150), radio = 16 },
-		{ centro = Vector3.new(-50, 118, -210), radio = 12 },
+		{ centro = Vector3.new(-130, 112, -260), radio = 12 },
 		{ centro = Vector3.new(220, 104, 215), radio = 14 },
 		{ centro = Vector3.new(40, 34, -270), radio = 26 },
 		{ centro = Vector3.new(-260, 60, 300), radio = 20 },
@@ -6741,6 +7364,7 @@ function Paisaje.Construir()
 	local L = Config.LOBBY
 	Paisaje.Isla(L, 78, true)
 	Paisaje.Isla(ISLA_SECRETA, 26, true)
+	Paisaje.Isla(MERCADO, 44, true)
 	for i = 0, 3 do
 		local angulo = math.rad(i * 90 + 45)
 		local estanque = L + Vector3.new(math.cos(angulo), 0, math.sin(angulo)) * 67
@@ -7301,6 +7925,7 @@ local function ocuparZonasFijas()
 	ocupar(L + Vector3.new(52, 0, -22), 15)
 	ocupar(L + Vector3.new(-18, 0, -50), 20) -- título y podio
 	ocupar(L + Vector3.new(18, 0, -50), 20)
+	ocupar(L + Vector3.new(0, 0, -74), 7) -- camino al Mercado
 	for i = 0, 3 do
 		local angulo = math.rad(i * 90 + 45)
 		local d = Vector3.new(math.cos(angulo), 0, math.sin(angulo))
@@ -7503,7 +8128,7 @@ function Lobby.Construir()
 		"Trucos",
 		L + Vector3.new(52, 9, -22),
 		Vector2.new(26, 16),
-		"TRUCOS\n\n🦘 Trampolines rosas: ¡a volar!\n🚀 Cañón: lleva a la isla secreta\n🔨 Martillo: haz clic para empujar\n❓ Cajas: poderes sorpresa\n🔴 El botón rojo... NO LO PULSES",
+		"TRUCOS\n\n🛒 Mercado (detrás del cartel): elige minijuego\n✨ Estelas: se compran con 🪙\n🚀 Cañón: lleva a la isla secreta\n🔨 Martillo: haz clic para empujar\n🔴 El botón rojo... NO LO PULSES",
 		Color3.fromRGB(150, 225, 235),
 		carpeta
 	)
@@ -7829,6 +8454,523 @@ function Lobby.Conectar()
 end
 
 -- =====================================================================
+-- 🛒 EL MERCADO: isla detrás del cartel del título, unida por un puente.
+-- Máquina para elegir el próximo minijuego, estelas, VIP, monedas,
+-- fiesta para todos y el ranking de coronas.
+-- =====================================================================
+
+local Mercado = {}
+local M = MERCADO
+local ORO = Color3.fromRGB(240, 186, 60)
+
+local function aviso(parte: BasePart, accion: string, objeto: string, atributos: { [string]: any })
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "Comprar"
+	prompt.ActionText = accion
+	prompt.ObjectText = objeto
+	prompt.HoldDuration = 0.25
+	prompt.MaxActivationDistance = 9
+	prompt.RequiresLineOfSight = false
+	for nombre, valor in atributos do
+		prompt:SetAttribute(nombre, valor)
+	end
+	prompt.Parent = parte
+end
+
+-- Cartel de madera en alto con texto (mirando hacia `mirarA`).
+local function letrero(nombre: string, posicion: Vector3, mirarA: Vector3, tamano: Vector2, texto: string, color: Color3, padre: Instance)
+	local tablero = C.Parte({
+		Name = nombre,
+		Size = Vector3.new(tamano.X, tamano.Y, 0.8),
+		CFrame = CFrame.lookAt(posicion, Vector3.new(mirarA.X, posicion.Y, mirarA.Z)),
+		Color = Color3.fromRGB(30, 36, 62),
+		Parent = padre,
+	})
+	C.Parte({
+		Name = "Marco",
+		Size = Vector3.new(tamano.X + 1, tamano.Y + 1, 0.5),
+		CFrame = tablero.CFrame * CFrame.new(0, 0, 0.4),
+		Color = MADERA,
+		Material = Enum.Material.Wood,
+		Parent = padre,
+	})
+	C.Cartel(tablero, Enum.NormalId.Front, texto, color, 20)
+	return tablero
+end
+
+local function postes(debajoDe: BasePart, padre: Instance)
+	local alto = debajoDe.Position.Y - debajoDe.Size.Y / 2 - L.Y
+	for _, lado in { -1, 1 } do
+		C.Parte({
+			Name = "Poste",
+			Size = Vector3.new(1, alto, 1),
+			CFrame = debajoDe.CFrame * CFrame.new(lado * debajoDe.Size.X * 0.35, -debajoDe.Size.Y / 2 - alto / 2, 0.7),
+			Color = MADERA,
+			Material = Enum.Material.Wood,
+			Parent = padre,
+		})
+	end
+end
+
+local function construirPuente(padre: Instance)
+	local desde, hasta = L.Z - 76, M.Z + 44
+	local largo = desde - hasta
+	local tablas = math.floor(largo / 2)
+	for k = 0, tablas - 1 do
+		C.Parte({
+			Name = "Tabla",
+			Size = Vector3.new(8, 0.5, 1.8),
+			CFrame = CFrame.new(L.X, L.Y - 0.25, desde - 1 - k * (largo / tablas)),
+			Color = if k % 2 == 0 then Color3.fromRGB(150, 108, 72) else Color3.fromRGB(136, 96, 64),
+			Material = Enum.Material.WoodPlanks,
+			Parent = padre,
+		})
+	end
+	for _, x in { -4.3, 4.3 } do
+		local postesPuente = math.floor(largo / 7)
+		for k = 0, postesPuente do
+			C.Parte({
+				Name = "PostePuente",
+				Size = Vector3.new(0.6, 3.4, 0.6),
+				CFrame = CFrame.new(L.X + x, L.Y + 1.2, desde - k * (largo / postesPuente)),
+				Color = MADERA,
+				Material = Enum.Material.Wood,
+				Parent = padre,
+			})
+		end
+		C.Parte({
+			Name = "Cuerda",
+			Size = Vector3.new(0.35, 0.35, largo),
+			CFrame = CFrame.new(L.X + x, L.Y + 2.7, (desde + hasta) / 2),
+			Color = Color3.fromRGB(214, 190, 140),
+			Material = Enum.Material.Fabric,
+			Parent = padre,
+		})
+	end
+	-- Camino en el lobby desde detrás del podio hasta el puente
+	local inicio, fin = L.Z - 46, L.Z - 76
+	C.Parte({
+		Name = "Camino",
+		Size = Vector3.new(6, 0.3, inicio - fin),
+		CFrame = CFrame.new(L.X, L.Y + 0.05, (inicio + fin) / 2),
+		Color = Color3.fromRGB(235, 215, 190),
+		Material = Enum.Material.Cobblestone,
+		CastShadow = false,
+		Parent = padre,
+	})
+end
+
+-- Máquina de minijuegos: un puesto por minijuego, en semicírculo.
+local function construirSelector(padre: Instance)
+	local cantidad = #MINIJUEGOS
+	for i, minijuego in MINIJUEGOS do
+		local angulo = math.rad(100 + (i - 1) / math.max(1, cantidad - 1) * 160)
+		local posicion = M + Vector3.new(math.cos(angulo) * 34, 0, math.sin(angulo) * 34)
+		local mirar = CFrame.lookAt(posicion, Vector3.new(M.X, posicion.Y, M.Z))
+		local color = minijuego.Color or MORADO
+		local base = C.Parte({
+			Name = "Puesto",
+			Size = Vector3.new(4.4, 3, 2.6),
+			CFrame = mirar * CFrame.new(0, 1.5, 0),
+			Color = color:Lerp(Color3.new(0, 0, 0), 0.15),
+			Parent = padre,
+		})
+		C.Parte({
+			Name = "Boton",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(0.6, 1.6, 1.6),
+			CFrame = mirar * CFrame.new(0, 1.9, -1.5) * CFrame.Angles(0, math.rad(90), 0),
+			Color = ORO,
+			Material = Enum.Material.Neon,
+			CastShadow = false,
+			Parent = padre,
+		})
+		local pantalla = C.Parte({
+			Name = "Pantalla",
+			Size = Vector3.new(4.6, 3.2, 0.4),
+			CFrame = mirar * CFrame.new(0, 4.6, 0.3) * CFrame.Angles(math.rad(-12), 0, 0),
+			Color = Color3.fromRGB(30, 36, 62),
+			Parent = padre,
+		})
+		C.Cartel(pantalla, Enum.NormalId.Front, `{minijuego.Emoji}\n{minijuego.Nombre}`, BLANCO, 30)
+		aviso(base, "Elegir", `{minijuego.Emoji} {minijuego.Nombre} · R$ {Config.PRECIOS.Elegir}`, {
+			Accion = "Elegir",
+			Minijuego = minijuego.Id,
+		})
+	end
+	local cartel = letrero(
+		"CartelElegir",
+		M + Vector3.new(-41, 11, 0),
+		M,
+		Vector2.new(24, 6),
+		`🎟️ ¡ELIGE TÚ EL PRÓXIMO MINIJUEGO!\nR$ {Config.PRECIOS.Elegir} · se juega sin votar`,
+		Color3.fromRGB(255, 220, 130),
+		padre
+	)
+	postes(cartel, padre)
+end
+
+-- Escaparate de estelas: cada pedestal tiene una bolita girando con su estela.
+local function construirEstelas(padre: Instance)
+	for i, estela in ESTELAS do
+		local angulo = math.rad(-35 + (i - 1) / math.max(1, #ESTELAS - 1) * 70)
+		local posicion = M + Vector3.new(math.cos(angulo) * 30, 0, math.sin(angulo) * 30)
+		local mirar = CFrame.lookAt(posicion, Vector3.new(M.X, posicion.Y, M.Z))
+		local pedestal = C.Disco(posicion + Vector3.new(0, 2.4, 0), 2, 2.4, {
+			Name = "Pedestal",
+			Color = PIEDRA,
+			Material = Enum.Material.Marble,
+			Parent = padre,
+		})
+		C.Disco(posicion + Vector3.new(0, 2.5, 0), 2.2, 0.3, {
+			Name = "Aro",
+			Color = if estela.SoloVIP then ORO else Color3.fromRGB(200, 192, 180),
+			Material = Enum.Material.SmoothPlastic,
+			Parent = padre,
+		})
+		-- Brazo invisible que gira con una bolita y la estela
+		local brazo = C.Parte({
+			Name = "Brazo",
+			Size = Vector3.new(4, 0.2, 0.2),
+			CFrame = CFrame.new(posicion + Vector3.new(0, 4.6, 0)),
+			Transparency = 1,
+			CanCollide = false,
+			CanQuery = false,
+			CanTouch = false,
+			Massless = true,
+			Parent = padre,
+		})
+		local bola = C.Bola(posicion + Vector3.new(2, 4.6, 0), 0.9, {
+			Name = "Muestra",
+			Color = estela.Color.Keypoints[1].Value,
+			Material = Enum.Material.Neon,
+			Anchored = false,
+			CanCollide = false,
+			CanQuery = false,
+			CanTouch = false,
+			Massless = true,
+			CastShadow = false,
+			Parent = padre,
+		})
+		C.Soldar(brazo, bola)
+		local a0 = Instance.new("Attachment")
+		a0.Position = Vector3.new(0, 0.5, 0)
+		a0.Parent = bola
+		local a1 = Instance.new("Attachment")
+		a1.Position = Vector3.new(0, -0.5, 0)
+		a1.Parent = bola
+		local muestra = Instance.new("Trail")
+		muestra.Attachment0 = a0
+		muestra.Attachment1 = a1
+		muestra.Color = estela.Color
+		muestra.Transparency = NumberSequence.new(0.2, 1)
+		muestra.Lifetime = 0.7
+		muestra.LightEmission = if estela.Brillo then 1 else 0.6
+		muestra.FaceCamera = true
+		if estela.Brillo then
+			muestra.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+			muestra.TextureMode = Enum.TextureMode.Wrap
+		end
+		muestra.Parent = bola
+		C.Motor(brazo, 2.5)
+		local placa = C.Parte({
+			Name = "Placa",
+			Size = Vector3.new(5, 1.6, 0.3),
+			CFrame = mirar * CFrame.new(0, 1.3, -2.3) * CFrame.Angles(math.rad(-20), 0, 0),
+			Color = Color3.fromRGB(30, 36, 62),
+			Parent = padre,
+		})
+		local precio = if estela.SoloVIP then "Gratis VIP ⭐" else `{estela.Precio} 🪙`
+		C.Cartel(placa, Enum.NormalId.Front, `{estela.Nombre}\n{precio}`, if estela.SoloVIP then ORO else BLANCO, 30)
+		aviso(pedestal, "Comprar / Ponerse", `{estela.Nombre} · {precio}`, { Accion = "Estela", Estela = estela.Id })
+	end
+	local cartel = letrero(
+		"CartelEstelas",
+		M + Vector3.new(38, 10, 0),
+		M,
+		Vector2.new(18, 5),
+		"✨ ESTELAS ✨\nse compran con 🪙 ganadas jugando",
+		Color3.fromRGB(150, 225, 235),
+		padre
+	)
+	postes(cartel, padre)
+end
+
+local function construirPuestos(padre: Instance)
+	-- ⭐ VIP: pedestal dorado con una corona
+	local vip = M + Vector3.new(16, 0, -30)
+	local pedestalVIP = C.Disco(vip + Vector3.new(0, 3, 0), 3, 3, { Name = "PuestoVIP", Color = ORO, Reflectance = 0.15, Parent = padre })
+	for k = 1, 10 do
+		local a = k / 10 * math.pi * 2
+		C.Parte({
+			Name = "Corona",
+			Size = Vector3.new(1.4, 1.2, 0.5),
+			CFrame = CFrame.new(vip + Vector3.new(math.cos(a) * 1.9, 4.2, math.sin(a) * 1.9)) * CFrame.Angles(0, -a + math.pi / 2, 0),
+			Color = ORO,
+			Reflectance = 0.2,
+			Parent = padre,
+		})
+		if k % 2 == 0 then
+			C.Bola(vip + Vector3.new(math.cos(a) * 1.9, 5.3, math.sin(a) * 1.9), 0.7, {
+				Name = "Joya",
+				Color = Config.COLORES[(k % #Config.COLORES) + 1],
+				Material = Enum.Material.Neon,
+				CanCollide = false,
+				Parent = padre,
+			})
+		end
+	end
+	local brillo = Instance.new("Sparkles")
+	brillo.SparkleColor = ORO
+	brillo.Parent = pedestalVIP
+	aviso(pedestalVIP, "Hazte VIP", `⭐ VIP · R$ {Config.PRECIOS.VIP}`, { Accion = "VIP" })
+	local cartelVIP = letrero(
+		"CartelVIP",
+		vip + Vector3.new(0, 9, -4),
+		M,
+		Vector2.new(13, 5),
+		`⭐ VIP · R$ {Config.PRECIOS.VIP}\nx2 🪙 · voto doble · estela de oro`,
+		ORO,
+		padre
+	)
+	postes(cartelVIP, padre)
+
+	-- 🪙 Bolsa de monedas: montón de monedas gigantes
+	local monedas = M + Vector3.new(-2, 0, -35)
+	local pedestalMonedas = C.Disco(monedas + Vector3.new(0, 1, 0), 3.4, 1, { Name = "PuestoMonedas", Color = MADERA, Material = Enum.Material.Wood, Parent = padre })
+	for k = 1, 6 do
+		C.Disco(monedas + Vector3.new(math.sin(k) * 0.4, 1 + k * 0.55, math.cos(k) * 0.4), 2.2, 0.5, {
+			Name = "Moneda",
+			Color = ORO,
+			Reflectance = 0.2,
+			Parent = padre,
+		})
+	end
+	C.Parte({
+		Name = "MonedaGigante",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.8, 5, 5),
+		CFrame = CFrame.new(monedas + Vector3.new(2.6, 3.4, 0.6)) * CFrame.Angles(0, math.rad(70), math.rad(10)),
+		Color = ORO,
+		Reflectance = 0.2,
+		Parent = padre,
+	})
+	aviso(pedestalMonedas, "Comprar", `🪙 +{Config.MONEDAS_POR_BOLSA} monedas · R$ {Config.PRECIOS.Monedas}`, { Accion = "Monedas" })
+	local cartelMonedas = letrero(
+		"CartelMonedas",
+		monedas + Vector3.new(0, 9, -3.5),
+		M,
+		Vector2.new(13, 5),
+		`🪙 +{Config.MONEDAS_POR_BOLSA} MONEDAS\nR$ {Config.PRECIOS.Monedas}`,
+		Color3.fromRGB(255, 220, 130),
+		padre
+	)
+	postes(cartelMonedas, padre)
+
+	-- 🎉 Fiesta para todos: un botón gordo
+	local fiesta = M + Vector3.new(16, 0, 28)
+	local pedestalFiesta = C.Parte({
+		Name = "PuestoFiesta",
+		Size = Vector3.new(4, 3, 4),
+		CFrame = CFrame.new(fiesta + Vector3.new(0, 1.5, 0)),
+		Color = Color3.fromRGB(64, 62, 76),
+		Material = Enum.Material.Metal,
+		Parent = padre,
+	})
+	C.Bola(fiesta + Vector3.new(0, 3.1, 0), 3.2, {
+		Name = "BotonFiesta",
+		Color = PALETA[6],
+		Material = Enum.Material.Neon,
+		Parent = padre,
+	})
+	for _, lado in { -1, 1 } do
+		C.Parte({
+			Name = "Canoncito",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(3, 1.2, 1.2),
+			CFrame = CFrame.new(fiesta + Vector3.new(lado * 3.2, 1.6, 0)) * CFrame.Angles(0, 0, math.rad(if lado > 0 then 60 else 120)),
+			Color = PALETA[(if lado > 0 then 4 else 2)],
+			Parent = padre,
+		})
+	end
+	aviso(pedestalFiesta, "¡Fiesta!", `🎉 Fiesta para todos · R$ {Config.PRECIOS.Fiesta}`, { Accion = "Fiesta" })
+	local cartelFiesta = letrero(
+		"CartelFiesta",
+		fiesta + Vector3.new(0, 8.5, 3.5),
+		M,
+		Vector2.new(13, 5),
+		`🎉 ¡FIESTA PARA TODOS!\n+25 🪙 a cada jugador · R$ {Config.PRECIOS.Fiesta}`,
+		PALETA[6],
+		padre
+	)
+	postes(cartelFiesta, padre)
+end
+
+local function construirRanking(padre: Instance)
+	local tablero = C.Parte({
+		Name = "Ranking",
+		Size = Vector3.new(24, 15, 1),
+		CFrame = CFrame.lookAt(M + Vector3.new(0, 14.5, -42), M + Vector3.new(0, 14.5, 0)),
+		Color = Color3.fromRGB(30, 36, 62),
+		Parent = padre,
+	})
+	C.Parte({
+		Name = "MarcoRanking",
+		Size = Vector3.new(25.4, 16.4, 0.6),
+		CFrame = tablero.CFrame * CFrame.new(0, 0, 0.5),
+		Color = ORO,
+		Parent = padre,
+	})
+	postes(tablero, padre)
+	local gui = Instance.new("SurfaceGui")
+	gui.Name = "Tabla"
+	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 20
+	gui.LightInfluence = 0
+	gui.Parent = tablero
+	local titulo = Instance.new("TextLabel")
+	titulo.Name = "Titulo"
+	titulo.BackgroundTransparency = 1
+	titulo.Size = UDim2.fromScale(1, 0.16)
+	titulo.FontFace = FUENTE
+	titulo.TextScaled = true
+	titulo.TextColor3 = ORO
+	titulo.Text = "🏆 RANKING DE CORONAS 🏆"
+	titulo.Parent = gui
+	local filas = {}
+	for i = 1, 10 do
+		local fila = Instance.new("TextLabel")
+		fila.Name = "FilaRanking" .. i
+		fila.BackgroundTransparency = 1
+		fila.Position = UDim2.fromScale(0.08, 0.17 + (i - 1) * 0.082)
+		fila.Size = UDim2.fromScale(0.84, 0.075)
+		fila.FontFace = FUENTE
+		fila.TextScaled = true
+		fila.TextXAlignment = Enum.TextXAlignment.Left
+		fila.TextColor3 = if i <= 3 then Color3.fromRGB(255, 230, 160) else BLANCO
+		fila.Text = "—"
+		fila.Parent = gui
+		table.insert(filas, fila)
+	end
+end
+
+function Mercado.Construir()
+	if workspace:FindFirstChild("Mercado") then
+		return
+	end
+	local carpeta = Instance.new("Folder")
+	carpeta.Name = "Mercado"
+	-- Plaza
+	C.Disco(M, 30, 2, { Name = "Plaza", Color = PIEDRA, Material = Enum.Material.Pavement, Parent = carpeta })
+	C.Disco(M - Vector3.new(0, 0.6, 0), 31.2, 1.6, { Name = "BordePlaza", Color = Color3.fromRGB(200, 192, 180), Material = Enum.Material.Slate, Parent = carpeta })
+	-- Arco de entrada
+	for _, x in { -10.5, 10.5 } do
+		C.Parte({
+			Name = "PilarArco",
+			Size = Vector3.new(2.4, 14, 2.4),
+			CFrame = CFrame.new(M + Vector3.new(x, 7, 39)),
+			Color = MADERA,
+			Material = Enum.Material.Wood,
+			Parent = carpeta,
+		})
+	end
+	letrero("CartelMercado", M + Vector3.new(0, 13, 39), M + Vector3.new(0, 13, 100), Vector2.new(19, 4.5), "🛒 MERCADO LOCO", Color3.fromRGB(255, 220, 130), carpeta)
+	-- Moneda gigante girando en el centro
+	C.Disco(M + Vector3.new(0, 3, 0), 2.6, 3, { Name = "PedestalMoneda", Color = PIEDRA, Material = Enum.Material.Marble, Parent = carpeta })
+	local moneda = C.Parte({
+		Name = "MonedaCentral",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(1.2, 9, 9),
+		CFrame = CFrame.new(M + Vector3.new(0, 9, 0)),
+		Color = ORO,
+		Reflectance = 0.25,
+		CanCollide = false,
+		Tags = { "Girar" },
+		Parent = carpeta,
+	})
+	local destellos = Instance.new("Sparkles")
+	destellos.SparkleColor = ORO
+	destellos.Parent = moneda
+	C.Motor(moneda, 1)
+	construirPuente(carpeta)
+	construirSelector(carpeta)
+	construirEstelas(carpeta)
+	construirPuestos(carpeta)
+	construirRanking(carpeta)
+	-- Farolas en la entrada
+	for _, x in { -12, 12 } do
+		local base = M + Vector3.new(x, 0, 36)
+		C.Parte({
+			Name = "Farola",
+			Size = Vector3.new(0.6, 12, 0.6),
+			CFrame = CFrame.new(base + Vector3.new(0, 6, 0)),
+			Color = Color3.fromRGB(52, 50, 60),
+			Material = Enum.Material.Metal,
+			Parent = carpeta,
+		})
+		local luz = C.Bola(base + Vector3.new(0, 12.6, 0), 1.3, {
+			Name = "LuzFarola",
+			Color = LUZ_CALIDA,
+			Material = Enum.Material.Neon,
+			CanCollide = false,
+			Parent = carpeta,
+		})
+		C.Luz(luz, LUZ_CALIDA, 1.2, 20)
+	end
+	carpeta.Parent = workspace
+end
+
+-- Conecta todos los puestos (por sus atributos) con la Tienda.
+function Mercado.Conectar()
+	local carpeta = workspace:FindFirstChild("Mercado")
+	if not carpeta then
+		return
+	end
+	local minijuegoPorId: { [string]: Minijuego } = {}
+	for _, m in MINIJUEGOS do
+		minijuegoPorId[m.Id] = m
+	end
+	local filas: { TextLabel } = {}
+	for i = 1, 10 do
+		local fila = carpeta:FindFirstChild("FilaRanking" .. i, true)
+		if fila and fila:IsA("TextLabel") then
+			table.insert(filas, fila)
+		end
+	end
+	Tienda.RegistrarRanking(filas)
+	for _, d in carpeta:GetDescendants() do
+		if d:IsA("BasePart") and not d.Anchored then
+			pcall(function()
+				d:SetNetworkOwner(nil)
+			end)
+		end
+	end
+	for _, d in carpeta:GetDescendants() do
+		if d:IsA("ProximityPrompt") then
+			d.Triggered:Connect(function(jugador: Player)
+				local accion = d:GetAttribute("Accion")
+				if accion == "Elegir" then
+					local minijuego = minijuegoPorId[d:GetAttribute("Minijuego") :: any]
+					if minijuego then
+						Tienda.ElegirMinijuego(jugador, minijuego)
+					end
+				elseif accion == "Estela" then
+					local estela = ESTELA_POR_ID[d:GetAttribute("Estela") :: any]
+					if estela then
+						Tienda.UsarEstela(jugador, estela)
+					end
+				elseif accion == "VIP" then
+					Tienda.ComprarVIP(jugador)
+				elseif accion == "Monedas" or accion == "Fiesta" then
+					Tienda.Comprar(jugador, accion :: string)
+				end
+			end)
+		end
+	end
+end
+
+-- =====================================================================
 -- 🗳️ VOTACIÓN: pisa una plataforma del lobby para elegir el minijuego
 -- =====================================================================
 
@@ -7859,7 +9001,7 @@ function Votacion.Contar(): { number }
 					local local_ = plataforma.CFrame:PointToObjectSpace(raiz.Position)
 					local mitad = plataforma.Size / 2
 					if math.abs(local_.X) <= mitad.X + 0.5 and math.abs(local_.Z) <= mitad.Z + 0.5 and local_.Y > -1 and local_.Y < 10 then
-						votos[i] += 1
+						votos[i] += if Jugadores.VIP[jugador] then 2 else 1 -- ¡el voto VIP vale doble!
 						break
 					end
 				end
@@ -8023,7 +9165,29 @@ local function esperarJugadores()
 	end
 end
 
+-- Un minijuego que alguien ha pagado en el Mercado: se juega sin votar.
+local function usarElegido(eleccion: Eleccion): Minijuego
+	local m = eleccion.Minijuego
+	local posicion = table.find(bolsa, m)
+	if posicion then
+		table.remove(bolsa, posicion)
+	end
+	ultimoMinijuego = m
+	Estadio.Pantalla(`🎟️ {m.Emoji} {m.Nombre}`, `¡Lo ha elegido {eleccion.Jugador.DisplayName}!`)
+	UI.Anuncio(`🎟️ {m.Emoji} {m.Nombre}`, {
+		Subtitulo = `¡Lo ha elegido {eleccion.Jugador.DisplayName} en el Mercado!`,
+		Color = DORADO,
+		Duracion = 3,
+	})
+	task.wait(3)
+	return m
+end
+
 local function votar(numero: number, dobles: boolean): Minijuego
+	local pagado = Tienda.SiguienteElegido()
+	if pagado then
+		return usarElegido(pagado)
+	end
 	local opciones = sacarOpciones()
 	local orden = Util.Mezclar(table.clone(opciones))
 	Votacion.Mostrar(orden)
@@ -8036,6 +9200,9 @@ local function votar(numero: number, dobles: boolean): Minijuego
 	local segundos = if RunService:IsStudio() then Config.TIEMPO_VOTACION_STUDIO else Config.TIEMPO_VOTACION
 	local votos = { 0, 0, 0 }
 	for s = segundos, 1, -1 do
+		if #Tienda.Cola > 0 then
+			break -- ¡alguien acaba de comprar su minijuego!
+		end
 		votos = Votacion.Contar()
 		Votacion.Mostrar(orden, votos)
 		local resumen = {}
@@ -8056,6 +9223,12 @@ local function votar(numero: number, dobles: boolean): Minijuego
 			Dobles = dobles,
 		})
 		task.wait(1)
+	end
+	local comprado = Tienda.SiguienteElegido()
+	if comprado then
+		Votacion.Ocultar(nil)
+		UI.Votos(nil)
+		return usarElegido(comprado)
 	end
 	votos = Votacion.Contar()
 
@@ -8202,6 +9375,7 @@ local function jugarRonda(numero: number, minijuego: Minijuego, dobles: boolean)
 		local puntos = (Config.PUNTOS_POR_PUESTO[fila.Puesto] or 1) * (if dobles then 2 else 1)
 		Jugadores.SumarPuntos(fila.Jugador, puntos)
 		Jugadores.Sumar(fila.Jugador, "XP", puntos)
+		Jugadores.SumarMonedas(fila.Jugador, puntos * Config.MONEDAS_POR_PUNTO + Config.MONEDAS_POR_RONDA, true)
 		table.insert(datosFilas, {
 			Puesto = fila.Puesto,
 			Nombre = fila.Jugador.DisplayName,
@@ -8269,6 +9443,7 @@ local function ceremonia()
 		if Jugadores.Puntos(jugador) == maximo and maximo > 0 then
 			table.insert(campeones, jugador.DisplayName)
 			Jugadores.Sumar(jugador, "Coronas", 1)
+			Jugadores.SumarMonedas(jugador, Config.MONEDAS_CAMPEON, true)
 		end
 	end
 	if #campeones == 0 then
@@ -8390,9 +9565,12 @@ Paisaje.Construir()
 Estadio.Construir()
 Lobby.Construir()
 Lobby.Conectar()
+Mercado.Construir()
+Mercado.Conectar()
 Grada.Construir()
 Impulsos.Iniciar()
 Jugadores.Iniciar()
+Tienda.Iniciar()
 UI.IniciarConsejos()
 Juego.Iniciar()
 
