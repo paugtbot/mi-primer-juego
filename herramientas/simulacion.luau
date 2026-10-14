@@ -629,6 +629,40 @@ local function moverBot(jugador, estado, dt: number, solidas: { Solida }, tocabl
 				end
 			end
 		end
+		-- Algunos bots son "listos" en Color Loco y Sillas Musicales.
+		if estado.listo == nil then
+			estado.listo = math.random() < 0.65
+		end
+		if enArena and arena and estado.listo then
+			local objetivo = nil
+			local colores = arena:FindFirstChild("Colores")
+			local seguro = colores and colores:GetAttribute("Seguro")
+			local sillas = arena:FindFirstChild("Sillas")
+			local mejorD = math.huge
+			if seguro and seguro ~= 0 then
+				for _, b in colores:GetChildren() do
+					if b:GetAttribute("Indice") == seguro then
+						local d = Vector3.new(b.CFrame.Position.X - pos.X, 0, b.CFrame.Position.Z - pos.Z).Magnitude
+						if d < mejorD then
+							objetivo, mejorD = b, d
+						end
+					end
+				end
+			elseif sillas then
+				for _, d in sillas:GetDescendants() do
+					if d.Name == "Silla" and d:GetAttribute("Libre") then
+						local dist = Vector3.new(d.CFrame.Position.X - pos.X, 0, d.CFrame.Position.Z - pos.Z).Magnitude
+						if dist < mejorD then
+							objetivo, mejorD = d, dist
+						end
+					end
+				end
+			end
+			if objetivo then
+				local hacia = Vector3.new(objetivo.CFrame.Position.X - pos.X, 0, objetivo.CFrame.Position.Z - pos.Z)
+				estado.dir = if hacia.Magnitude > 1.2 then hacia.Unit else Vector3.zero
+			end
+		end
 		entrada = estado.dir * humanoide.WalkSpeed
 	end
 

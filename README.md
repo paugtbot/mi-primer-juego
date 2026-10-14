@@ -1,7 +1,7 @@
 # 🤪 LOCURA TOTAL
 
 **Un juego de fiesta para Roblox, para 8 jugadores. TODO en un solo script.**
-13 minijuegos · 12 modos locos · 0 piedad.
+17 minijuegos · 12 modos locos · 0 piedad.
 
 Cada ronda los jugadores **votan** el minijuego pisando una plataforma del
 lobby, y después una **ruleta** elige un **MODO LOCO** que lo cambia todo
@@ -49,7 +49,7 @@ Pestaña **Test** → *Clients and Servers* → **Local Server** con **8 Players
 
 ---
 
-## 🎮 Los 13 minijuegos
+## 🎮 Los 17 minijuegos
 
 | | Minijuego | De qué va |
 |---|---|---|
@@ -66,6 +66,10 @@ Pestaña **Test** → *Clients and Servers* → **Local Server** con **8 Players
 | 🌋 | **La Lava Sube** ✨ | Escala una torre de plataformas antes de que la lava te alcance. |
 | 🧱 | **Muro Loco** ✨ | Vienen muros con agujeros: ponte en el hueco o salta los bajitos. |
 | 💎 | **Fiebre de Gemas** ✨ | Coge gemas (las doradas valen 5) y róbaselas a martillazos. |
+| 🌈 | **Color Loco** 🆕 | Sale un color: ponte encima antes de que las demás baldosas desaparezcan. ¡Cada vez más rápido! |
+| 🪑 | **Sillas Musicales** 🆕 | Baila mientras suena la música. Cuando para, ¡a por una silla! Siempre falta una (y hay martillos). |
+| 🧟 | **Invasión Zombi** 🆕 | Si un zombi te toca, te conviertes. Los humanos puntúan por sobrevivir, los zombis por pillar. |
+| ❄️ | **Guerra de Bolas de Nieve** 🆕 | Lanza bolas de nieve (clic): +1 por bolazo y +3 si tiras a alguien al vacío. |
 
 ## 🌀 Los 12 modos locos
 
@@ -75,8 +79,9 @@ Pestaña **Test** → *Clients and Servers* → **Local Server** con **8 Players
 
 ## 🌅 Lo visual
 
-- **Atardecer dorado** con neblina rosa, rayos de sol, brillo (*bloom*), nubes
-  de verdad y un **mar turquesa** rodeado de **montañas nevadas**.
+- **Tarde soleada** con luz natural y limpia (sin colores quemados), nubes de
+  verdad y un **mar azul** rodeado de **montañas** con faldas verdes y cimas
+  nevadas.
 - **Islas flotantes** de roca con árboles de chuchería por todo el cielo.
 - **Lobby en una isla**: plaza con **fuente**, pista de baile circular con bola
   de discoteca, **arcoíris gigante** sobre las plataformas de votación, cartel
@@ -119,8 +124,8 @@ sección **⚙️ CONFIGURACIÓN**:
 - `RONDAS_POR_PARTIDA = 6`, `TIEMPO_VOTACION = 15`, `PUNTOS_POR_PUESTO`…
 - `CAJAS_SORPRESA = true` (pon `false` para quitarlas), `ULTIMA_RONDA_DOBLE`…
 - Los colores, la velocidad y el salto normales.
-- ¿Prefieres jugar de noche? Busca `Lighting.ClockTime = 16.4` (en
-  `Paisaje.Luces`) y pon `0`. ¡Con `12` es mediodía!
+- ¿Prefieres jugar de noche? Busca `Lighting.ClockTime = 14.8` (en
+  `Paisaje.Luces`) y pon `0`. ¡Con `17.5` tienes un atardecer!
 
 Más ideas:
 
