@@ -2804,126 +2804,23 @@ end
 -- ----- Ciclo de vida -----
 
 -- 1) Construye la arena.
--- Decoración que se pone alrededor de cualquier arena: columnas con
--- luces, banderines, brillitos flotando y brasas sobre la lava.
--- (No choca con nada, así que no cambia cómo se juega.)
-local function sinColision(props: Props): Props
-	props.CanCollide = false
-	props.CanQuery = false
-	props.CanTouch = false
-	props.CastShadow = false
-	return props
-end
-
+-- La lava suelta brasas (solo decoración: no cambia cómo se juega).
 local function decorarArena(carpeta: Instance)
-	local x1, y1, z1 = math.huge, math.huge, math.huge
-	local x2, y2, z2 = -math.huge, -math.huge, -math.huge
-	for _, d in carpeta:GetDescendants() do
-		if d:IsA("BasePart") and d.Transparency < 0.3 and d.Name ~= "Lava" and d.Size.Magnitude < 400 then
-			local cf = d.CFrame
-			local m = d.Size / 2
-			local ex = math.abs(cf.RightVector.X) * m.X + math.abs(cf.UpVector.X) * m.Y + math.abs(cf.LookVector.X) * m.Z
-			local ey = math.abs(cf.RightVector.Y) * m.X + math.abs(cf.UpVector.Y) * m.Y + math.abs(cf.LookVector.Y) * m.Z
-			local ez = math.abs(cf.RightVector.Z) * m.X + math.abs(cf.UpVector.Z) * m.Y + math.abs(cf.LookVector.Z) * m.Z
-			local c = cf.Position
-			x1, y1, z1 = math.min(x1, c.X - ex), math.min(y1, c.Y - ey), math.min(z1, c.Z - ez)
-			x2, y2, z2 = math.max(x2, c.X + ex), math.max(y2, c.Y + ey), math.max(z2, c.Z + ez)
-		end
-	end
-	if x1 == math.huge then
-		return
-	end
-	local decorado = Instance.new("Folder")
-	decorado.Name = "Decorado"
-	local margen = 10
-	x1, x2, z1, z2 = x1 - margen, x2 + margen, z1 - margen, z2 + margen
-	local arriba, abajo = y2 + 14, y1 - 30
-	local esquinas = { Vector3.new(x1, 0, z1), Vector3.new(x2, 0, z1), Vector3.new(x2, 0, z2), Vector3.new(x1, 0, z2) }
-	for i, e in esquinas do
-		local color = Config.COLORES[((i * 2) % #Config.COLORES) + 1]
-		C.Parte(sinColision({
-			Name = "Columna",
-			Size = Vector3.new(2.5, arriba - abajo, 2.5),
-			CFrame = CFrame.new(e.X, (arriba + abajo) / 2, e.Z),
-			Color = Color3.fromRGB(45, 40, 70),
-			Material = Enum.Material.Metal,
-			Parent = decorado,
-		}))
-		for k = 0, 3 do
-			C.Parte(sinColision({
-				Name = "AnilloColumna",
-				Size = Vector3.new(3.2, 0.8, 3.2),
-				CFrame = CFrame.new(e.X, arriba - 3 - k * (arriba - abajo) / 5, e.Z),
-				Color = color,
-				Material = Enum.Material.Neon,
-				Parent = decorado,
-			}))
-		end
-		local orbe = C.Bola(Vector3.new(e.X, arriba + 2, e.Z), 4, sinColision({
-			Name = "Orbe",
-			Color = color,
-			Material = Enum.Material.Neon,
-			Parent = decorado,
-		}))
-		C.Luz(orbe, color, 2, 40)
-	end
-	-- Banderines de colores entre las columnas
-	for i = 1, 4 do
-		local a, b = esquinas[i], esquinas[(i % 4) + 1]
-		local largo = (b - a).Magnitude
-		if largo <= 260 then
-			local direccion = (b - a).Unit
-			local fuera = Vector3.new(-direccion.Z, 0, direccion.X)
-			local cantidad = math.floor(largo / 5)
-			for k = 1, cantidad - 1 do
-				local t = k / cantidad
-				local caida = 4 * t * (1 - t) * math.min(10, largo / 12)
-				local punto = a:Lerp(b, t) + Vector3.new(0, arriba - 1.5 - caida, 0)
-				C.Parte(sinColision({
-					Name = "Banderin",
-					Size = Vector3.new(1.6, 1.6, 0.15),
-					CFrame = CFrame.lookAt(punto, punto + fuera) * CFrame.Angles(0, 0, math.rad(45)),
-					Color = Config.COLORES[(k % #Config.COLORES) + 1],
-					Parent = decorado,
-				}))
-			end
-		end
-	end
-	-- Brillitos flotando por encima de la arena
-	local zona = C.Parte(sinColision({
-		Name = "Brillitos",
-		Size = Vector3.new(x2 - x1, 1, z2 - z1),
-		CFrame = CFrame.new((x1 + x2) / 2, y2 + 4, (z1 + z2) / 2),
-		Transparency = 1,
-		Parent = decorado,
-	}))
-	local brillitos = Instance.new("ParticleEmitter")
-	brillitos.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	brillitos.Color = arcoiris()
-	brillitos.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.5, 0.5), NumberSequenceKeypoint.new(1, 0) })
-	brillitos.Lifetime = NumberRange.new(4, 7)
-	brillitos.Speed = NumberRange.new(0.5, 2)
-	brillitos.SpreadAngle = Vector2.new(180, 180)
-	brillitos.LightEmission = 1
-	brillitos.Rate = math.clamp((x2 - x1) * (z2 - z1) / 500, 4, 20)
-	brillitos.Parent = zona
-	-- Brasas que saltan de la lava
 	for _, d in carpeta:GetDescendants() do
 		if d:IsA("BasePart") and d.Name == "Lava" and not d:FindFirstChildOfClass("ParticleEmitter") then
 			local brasas = Instance.new("ParticleEmitter")
 			brasas.Name = "Brasas"
-			brasas.Color = ColorSequence.new(Color3.fromRGB(255, 230, 120), Color3.fromRGB(255, 80, 20))
-			brasas.Size = NumberSequence.new(0.6, 0)
+			brasas.Color = ColorSequence.new(Color3.fromRGB(255, 220, 120), Color3.fromRGB(255, 80, 20))
+			brasas.Size = NumberSequence.new(0.5, 0)
 			brasas.Lifetime = NumberRange.new(1.5, 3)
-			brasas.Speed = NumberRange.new(6, 14)
+			brasas.Speed = NumberRange.new(5, 12)
 			brasas.Acceleration = Vector3.new(0, -4, 0)
 			brasas.LightEmission = 1
 			brasas.EmissionDirection = Enum.NormalId.Top
-			brasas.Rate = math.clamp(d.Size.X * d.Size.Z / 400, 8, 40)
+			brasas.Rate = math.clamp(d.Size.X * d.Size.Z / 500, 6, 30)
 			brasas.Parent = d
 		end
 	end
-	decorado.Parent = carpeta
 end
 
 function Ronda.Construir(self: Ronda)
@@ -6546,7 +6443,7 @@ end
 
 -- Luz de tarde soleada, limpia y natural (colores vivos pero sin pasarse).
 function Paisaje.Luces()
-	Lighting.ClockTime = 14.8
+	Lighting.ClockTime = 15.2
 	Lighting.GeographicLatitude = 35
 	Lighting.Brightness = 2.2
 	Lighting.ExposureCompensation = 0
@@ -6555,7 +6452,7 @@ function Paisaje.Luces()
 	Lighting.ShadowSoftness = 0.25
 	Lighting.Ambient = Color3.fromRGB(70, 70, 82)
 	Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 138)
-	Lighting.ColorShift_Top = Color3.fromRGB(255, 247, 235)
+	Lighting.ColorShift_Top = Color3.fromRGB(255, 240, 222)
 	Lighting.ColorShift_Bottom = Color3.fromRGB(0, 0, 0)
 
 	local atm = Lighting:FindFirstChildOfClass("Atmosphere")
@@ -6590,8 +6487,8 @@ function Paisaje.Luces()
 	rayos.Intensity = 0.03
 	rayos.Spread = 0.6
 	local color = efectoLuz("ColoresLocos", "ColorCorrectionEffect")
-	color.Saturation = 0
-	color.Contrast = 0.06
+	color.Saturation = 0.04
+	color.Contrast = 0.08
 	color.Brightness = 0
 	color.TintColor = BLANCO
 end
@@ -6623,56 +6520,147 @@ function Paisaje.Isla(centro: Vector3, radio: number, conPlaya: boolean?)
 	terreno:FillBall(Vector3.new(centro.X, y, centro.Z), radio * 0.16, Enum.Material.Rock)
 end
 
--- Árbol de chuchería: tronco de rayas y copa de bolas de colores.
+-- Árbol redondito: tronco de madera y copa de bolas en tres tonos.
 function Paisaje.Arbol(base: Vector3, altura: number, color: Color3, padre: Instance)
 	C.Parte({
 		Name = "Tronco",
 		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(altura, 1.6, 1.6),
+		Size = Vector3.new(altura, 1.4, 1.4),
 		CFrame = CFrame.new(base + Vector3.new(0, altura / 2, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-		Color = Color3.fromRGB(150, 105, 80),
+		Color = Color3.fromRGB(120, 86, 62),
 		Material = Enum.Material.Wood,
 		Parent = padre,
 	})
 	local copa = base + Vector3.new(0, altura, 0)
+	local oscuro = color:Lerp(Color3.new(0, 0, 0), 0.18)
+	local claro = color:Lerp(BLANCO, 0.15)
+	local giro = CFrame.Angles(0, math.random() * math.pi * 2, 0)
 	local bolas = {
-		{ desplazamiento = Vector3.new(0, 1.5, 0), tamano = 7 },
-		{ desplazamiento = Vector3.new(2.6, 0, 1), tamano = 5 },
-		{ desplazamiento = Vector3.new(-2.4, 0.4, -1.4), tamano = 5 },
-		{ desplazamiento = Vector3.new(0.6, 3.8, -0.6), tamano = 4.5 },
+		{ desplazamiento = Vector3.new(0, 1.2, 0), tamano = 7.5, tono = color },
+		{ desplazamiento = Vector3.new(2.8, -0.4, 1.2), tamano = 5.2, tono = oscuro },
+		{ desplazamiento = Vector3.new(-2.6, 0, -1.6), tamano = 5.4, tono = oscuro },
+		{ desplazamiento = Vector3.new(-1, -0.6, 2.6), tamano = 4.6, tono = color },
+		{ desplazamiento = Vector3.new(0.8, 3.6, -0.4), tamano = 4.8, tono = claro },
 	}
-	for i, bola in bolas do
-		C.Bola(copa + bola.desplazamiento, bola.tamano, {
+	for _, bola in bolas do
+		C.Bola(copa + giro:VectorToWorldSpace(bola.desplazamiento), bola.tamano, {
 			Name = "Copa",
-			Color = if i == 4 then color:Lerp(BLANCO, 0.35) else color,
-			Material = Enum.Material.SmoothPlastic,
-			CastShadow = true,
+			Color = bola.tono,
 			CanCollide = false,
 			Parent = padre,
 		})
 	end
 end
 
+-- Arbusto: tres bolas verdes.
+function Paisaje.Arbusto(base: Vector3, padre: Instance)
+	local verde = Color3.fromRGB(86, 150, 68)
+	for _, bola in {
+		{ desplazamiento = Vector3.new(0, 1.2, 0), tamano = 3.4 },
+		{ desplazamiento = Vector3.new(1.5, 0.8, 0.6), tamano = 2.6 },
+		{ desplazamiento = Vector3.new(-1.3, 0.7, -0.7), tamano = 2.4 },
+	} do
+		C.Bola(base + bola.desplazamiento, bola.tamano, {
+			Name = "Arbusto",
+			Color = verde:Lerp(Color3.new(0, 0, 0), math.random() * 0.15),
+			CanCollide = false,
+			CanQuery = false,
+			Parent = padre,
+		})
+	end
+end
+
+-- Cascada: agua que cae desde `borde` hacia fuera (`direccion`) y se deshace en espuma.
+function Paisaje.Cascada(borde: Vector3, direccion: Vector3, alto: number, ancho: number, padre: Instance)
+	local cascada = C.Parte({
+		Name = "Cascada",
+		Size = Vector3.new(ancho, 1, 1),
+		CFrame = CFrame.lookAt(borde, borde + direccion),
+		Transparency = 1,
+		CanCollide = false,
+		CanQuery = false,
+		CanTouch = false,
+		Parent = padre,
+	})
+	local arriba = Instance.new("Attachment")
+	arriba.Parent = cascada
+	local abajo = Instance.new("Attachment")
+	abajo.Position = Vector3.new(0, -alto, -3)
+	abajo.Parent = cascada
+	local agua = Instance.new("Beam")
+	agua.Name = "Agua"
+	agua.Attachment0 = arriba
+	agua.Attachment1 = abajo
+	agua.Color = ColorSequence.new(Color3.fromRGB(170, 225, 245), BLANCO)
+	agua.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.2),
+		NumberSequenceKeypoint.new(0.6, 0.5),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	agua.LightEmission = 0.2
+	agua.Width0 = ancho
+	agua.Width1 = ancho * 1.8
+	agua.FaceCamera = true
+	agua.Segments = 6
+	agua.Parent = cascada
+	local espuma = Instance.new("ParticleEmitter")
+	espuma.Color = ColorSequence.new(BLANCO)
+	espuma.Size = NumberSequence.new(1.2, 3.5)
+	espuma.Transparency = NumberSequence.new(0.5, 1)
+	espuma.Lifetime = NumberRange.new(1.5, 2.5)
+	espuma.Speed = NumberRange.new(4, 8)
+	espuma.SpreadAngle = Vector2.new(25, 25)
+	espuma.Acceleration = Vector3.new(0, -25, 0)
+	espuma.Rate = 14
+	espuma.EmissionDirection = Enum.NormalId.Front
+	espuma.Parent = cascada
+end
+
+-- Casi todos verdes; algún cerezo rosa y algún árbol de otoño.
 local COLORES_ARBOL = {
-	Color3.fromRGB(255, 150, 200),
-	Color3.fromRGB(140, 230, 180),
-	Color3.fromRGB(190, 160, 255),
-	Color3.fromRGB(255, 190, 120),
-	Color3.fromRGB(120, 210, 255),
+	Color3.fromRGB(96, 160, 72),
+	Color3.fromRGB(78, 140, 64),
+	Color3.fromRGB(244, 168, 198),
+	Color3.fromRGB(120, 176, 84),
+	Color3.fromRGB(106, 168, 80),
+	Color3.fromRGB(232, 150, 72),
+	Color3.fromRGB(88, 150, 70),
 }
 
--- Isla flotante de adorno, con árboles.
-function Paisaje.IslaAdorno(centro: Vector3, radio: number, padre: Instance)
+-- Islas flotantes alrededor de la zona de minijuegos. Las dos primeras
+-- llevan las pantallas gigantes.
+local ISLAS_ESTADIO: { { centro: Vector3, radio: number } } = {
+	{ centro = Config.ARENA + Vector3.new(195, -25, 10), radio = 26 },
+	{ centro = Config.ARENA + Vector3.new(10, -35, 240), radio = 28 },
+	{ centro = Config.ARENA + Vector3.new(140, -45, 150), radio = 18 },
+	{ centro = Config.ARENA + Vector3.new(-150, -40, 160), radio = 20 },
+	{ centro = Config.ARENA + Vector3.new(-200, -55, -40), radio = 16 },
+	{ centro = Config.ARENA + Vector3.new(150, -50, -160), radio = 20 },
+	{ centro = Config.ARENA + Vector3.new(-120, -60, -190), radio = 15 },
+	{ centro = Config.ARENA + Vector3.new(40, -70, -230), radio = 22 },
+}
+
+-- Isla flotante de adorno, con árboles y (si es grande) una cascada.
+-- `huecoHacia`: deja libre ese lado (por ejemplo, para una pantalla).
+function Paisaje.IslaAdorno(centro: Vector3, radio: number, padre: Instance, huecoHacia: Vector3?)
 	Paisaje.Isla(centro, radio)
-	for i = 1, math.max(1, math.floor(radio / 7)) do
+	local fuera = Util.Direccion(Config.ARENA, centro, Vector3.new(1, 0, 0))
+	for i = 1, math.max(2, math.floor(radio / 5)) do
 		local angulo = math.random() * math.pi * 2
-		local r = math.random() * radio * 0.6
-		Paisaje.Arbol(
-			centro + Vector3.new(math.cos(angulo) * r, 0, math.sin(angulo) * r),
-			math.random(6, 10),
-			COLORES_ARBOL[(i % #COLORES_ARBOL) + 1],
-			padre
-		)
+		local r = (0.35 + math.random() * 0.4) * radio
+		local punto = centro + Vector3.new(math.cos(angulo) * r, 0, math.sin(angulo) * r)
+		local hueco = huecoHacia
+		if not (hueco and Util.Direccion(centro, punto):Dot(hueco) > -0.2) then
+			Paisaje.Arbol(punto, math.random(6, 10), COLORES_ARBOL[(i % #COLORES_ARBOL) + 1], padre)
+		end
+	end
+	for _ = 1, math.floor(radio / 6) do
+		local angulo = math.random() * math.pi * 2
+		Paisaje.Arbusto(centro + Vector3.new(math.cos(angulo), 0, math.sin(angulo)) * radio * 0.8, padre)
+	end
+	if radio >= 18 then
+		local lado = CFrame.Angles(0, math.rad(math.random(-40, 40)), 0):VectorToWorldSpace(fuera)
+		Paisaje.Cascada(centro + lado * (radio * 0.98) - Vector3.new(0, 0.4, 0), lado, 45 + radio, 4, padre)
 	end
 end
 
@@ -6742,6 +6730,11 @@ function Paisaje.Construir()
 	for _, isla in islas do
 		Paisaje.IslaAdorno(isla.centro, isla.radio, adornos)
 	end
+	for i, isla in ISLAS_ESTADIO do
+		-- En las islas de las pantallas, el lado que mira a la arena queda libre
+		local hueco = if i <= 2 then Util.Direccion(isla.centro, Config.ARENA) else nil
+		Paisaje.IslaAdorno(isla.centro, isla.radio, adornos, hueco)
+	end
 	adornos.Parent = workspace
 
 	-- La isla del lobby (con 4 estanques) y la isla secreta
@@ -6763,63 +6756,13 @@ end
 local Estadio = {}
 local pantallas: { { Titulo: TextLabel, Sub: TextLabel } } = {}
 
-local function anillo(nombre: string, centro: CFrame, radio: number, segmentos: number, grosor: number, padre: Instance, desfase: number)
-	for i = 1, segmentos do
-		local angulo = (i - 0.5) / segmentos * math.pi * 2
-		C.Parte({
-			Name = nombre,
-			Size = Vector3.new(2 * math.pi * radio / segmentos + 0.3, grosor, grosor),
-			CFrame = centro * CFrame.Angles(0, -angulo, 0) * CFrame.new(0, 0, -radio),
-			Color = Color3.fromHSV(((i / segmentos) + desfase) % 1, 0.8, 0.85),
-			Material = Enum.Material.Neon,
-			CanCollide = false,
-			CanQuery = false,
-			CanTouch = false,
-			CastShadow = false,
-			Parent = padre,
-		})
-	end
-end
-
--- Haz de luz hacia el cielo (como en un concierto).
-local function hazDeLuz(desde: BasePart, hacia: Vector3, color: Color3, padre: Instance)
-	local fin = C.Parte({
-		Name = "FinHaz",
-		Size = Vector3.new(1, 1, 1),
-		CFrame = CFrame.new(hacia),
-		Transparency = 1,
-		CanCollide = false,
-		CanQuery = false,
-		CanTouch = false,
-		Parent = padre,
-	})
-	local a0 = Instance.new("Attachment")
-	a0.Parent = desde
-	local a1 = Instance.new("Attachment")
-	a1.Parent = fin
-	local haz = Instance.new("Beam")
-	haz.Attachment0 = a0
-	haz.Attachment1 = a1
-	haz.Color = ColorSequence.new(color)
-	haz.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.35),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	haz.LightEmission = 1
-	haz.LightInfluence = 0
-	haz.Width0 = 2
-	haz.Width1 = 22
-	haz.FaceCamera = true
-	haz.Segments = 2
-	haz.Parent = desde
-end
-
-local function pantalla(nombre: string, cf: CFrame, tamano: Vector2, padre: Instance)
-	local marco = C.Parte({
+-- Pantalla gigante sobre dos postes que bajan hasta `suelo` (la isla).
+local function pantalla(nombre: string, cf: CFrame, tamano: Vector2, suelo: number, padre: Instance)
+	C.Parte({
 		Name = nombre,
 		Size = Vector3.new(tamano.X + 3, tamano.Y + 3, 1.5),
 		CFrame = cf,
-		Color = Color3.fromRGB(45, 40, 70),
+		Color = Color3.fromRGB(40, 38, 52),
 		Material = Enum.Material.Metal,
 		CanCollide = false,
 		Parent = padre,
@@ -6828,7 +6771,7 @@ local function pantalla(nombre: string, cf: CFrame, tamano: Vector2, padre: Inst
 		Name = "Panel",
 		Size = Vector3.new(tamano.X, tamano.Y, 1),
 		CFrame = cf * CFrame.new(0, 0, -0.4),
-		Color = Color3.fromRGB(15, 12, 30),
+		Color = Color3.fromRGB(15, 14, 24),
 		CanCollide = false,
 		Parent = padre,
 	})
@@ -6838,14 +6781,13 @@ local function pantalla(nombre: string, cf: CFrame, tamano: Vector2, padre: Inst
 	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 	gui.PixelsPerStud = 12
 	gui.LightInfluence = 0
-	gui.Brightness = 1.5
 	gui.Parent = panel
 	local fondo = Instance.new("Frame")
 	fondo.Size = UDim2.fromScale(1, 1)
-	fondo.BackgroundColor3 = Color3.fromRGB(25, 15, 45)
+	fondo.BackgroundColor3 = BLANCO
 	fondo.Parent = gui
 	local degradado = Instance.new("UIGradient")
-	degradado.Color = ColorSequence.new(Color3.fromRGB(60, 20, 90), Color3.fromRGB(20, 40, 90))
+	degradado.Color = ColorSequence.new(Color3.fromRGB(48, 40, 92), Color3.fromRGB(22, 30, 64))
 	degradado.Rotation = 90
 	degradado.Parent = fondo
 	local titulo = Instance.new("TextLabel")
@@ -6856,7 +6798,7 @@ local function pantalla(nombre: string, cf: CFrame, tamano: Vector2, padre: Inst
 	titulo.FontFace = FUENTE
 	titulo.TextScaled = true
 	titulo.TextColor3 = BLANCO
-	titulo.TextStrokeTransparency = 0
+	titulo.TextStrokeTransparency = 0.4
 	titulo.Text = "🤪 " .. Config.NOMBRE
 	titulo.Parent = fondo
 	local sub = Instance.new("TextLabel")
@@ -6866,38 +6808,33 @@ local function pantalla(nombre: string, cf: CFrame, tamano: Vector2, padre: Inst
 	sub.Size = UDim2.fromScale(0.9, 0.26)
 	sub.FontFace = FUENTE
 	sub.TextScaled = true
-	sub.TextColor3 = Color3.fromRGB(255, 221, 89)
-	sub.TextStrokeTransparency = 0
+	sub.TextColor3 = Color3.fromRGB(255, 214, 110)
+	sub.TextStrokeTransparency = 0.4
 	sub.Text = `8 jugadores · {#MINIJUEGOS} minijuegos · 0 piedad`
 	sub.Parent = fondo
-	-- Dos patas hasta el mar, sobre rocas
+	-- Postes hasta la isla y un travesaño
 	local abajo = cf.Position.Y - (tamano.Y + 3) / 2
+	local alto = abajo - suelo + 1
 	for _, lado in { -1, 1 } do
-		local pie = (cf * CFrame.new(lado * tamano.X * 0.3, 0, 2)).Position
-		local alto = abajo + 4
+		local pie = (cf * CFrame.new(lado * tamano.X * 0.3, 0, 1.8)).Position
 		C.Parte({
-			Name = "PataPantalla",
-			Size = Vector3.new(3, alto, 3),
-			CFrame = CFrame.new(Vector3.new(pie.X, abajo - alto / 2, pie.Z)),
-			Color = Color3.fromRGB(45, 40, 70),
+			Name = "Poste",
+			Size = Vector3.new(2.4, alto + tamano.Y * 0.6, 2.4),
+			CFrame = CFrame.new(Vector3.new(pie.X, suelo - 1 + (alto + tamano.Y * 0.6) / 2, pie.Z)),
+			Color = Color3.fromRGB(70, 66, 82),
 			Material = Enum.Material.Metal,
 			Parent = padre,
 		})
-		for k = 1, 3 do
-			C.Parte({
-				Name = "Franja",
-				Size = Vector3.new(3.4, 1, 3.4),
-				CFrame = CFrame.new(Vector3.new(pie.X, abajo - k * alto / 4, pie.Z)),
-				Color = Color3.fromRGB(255, 107, 203),
-				Material = Enum.Material.Neon,
-				CastShadow = false,
-				Parent = padre,
-			})
-		end
-		workspace.Terrain:FillCylinder(CFrame.new(Vector3.new(pie.X, -6, pie.Z)), 8, 7, Enum.Material.Rock)
 	end
+	C.Parte({
+		Name = "Travesano",
+		Size = Vector3.new(tamano.X * 0.6 + 2.4, 1.6, 1.6),
+		CFrame = cf * CFrame.new(0, -tamano.Y / 2 - 1.5, 1.8),
+		Color = Color3.fromRGB(70, 66, 82),
+		Material = Enum.Material.Metal,
+		Parent = padre,
+	})
 	table.insert(pantallas, { Titulo = titulo, Sub = sub })
-	return marco
 end
 
 function Estadio.Construir()
@@ -6907,58 +6844,15 @@ function Estadio.Construir()
 	local A = Config.ARENA
 	local carpeta = Instance.new("Folder")
 	carpeta.Name = "Estadio"
-
-	-- Dos anillos de neón arcoíris: uno debajo de la arena y otro inclinado en el cielo
-	anillo("AnilloBajo", CFrame.new(A + Vector3.new(0, -45, 0)), 190, 64, 3, carpeta, 0)
-	anillo("AnilloAlto", CFrame.new(A + Vector3.new(0, 95, 0)) * CFrame.Angles(math.rad(14), 0, math.rad(9)), 215, 72, 2.2, carpeta, 0.5)
-
-	-- Torres de luz en el mar, con focos y haces hacia el cielo
-	for i, esquina in { Vector3.new(-150, 0, -215), Vector3.new(150, 0, -215), Vector3.new(-150, 0, 215), Vector3.new(150, 0, 215) } do
-		local base = Vector3.new(A.X + esquina.X, 0, A.Z + esquina.Z)
-		workspace.Terrain:FillCylinder(CFrame.new(base - Vector3.new(0, 8, 0)), 22, 12, Enum.Material.Rock)
-		local alto = 170
-		C.Parte({
-			Name = "Torre",
-			Size = Vector3.new(5, alto, 5),
-			CFrame = CFrame.new(base + Vector3.new(0, alto / 2, 0)),
-			Color = Color3.fromRGB(45, 40, 70),
-			Material = Enum.Material.Metal,
-			Parent = carpeta,
-		})
-		for j = 1, 6 do
-			C.Parte({
-				Name = "Franja",
-				Size = Vector3.new(5.4, 1.2, 5.4),
-				CFrame = CFrame.new(base + Vector3.new(0, j * 26, 0)),
-				Color = Config.COLORES[((i + j) % #Config.COLORES) + 1],
-				Material = Enum.Material.Neon,
-				CastShadow = false,
-				Parent = carpeta,
-			})
-		end
-		local foco = C.Parte({
-			Name = "Foco",
-			Size = Vector3.new(14, 8, 6),
-			CFrame = CFrame.lookAt(base + Vector3.new(0, alto + 4, 0), Vector3.new(A.X, A.Y, A.Z)),
-			Color = Color3.fromRGB(255, 250, 230),
-			Material = Enum.Material.Neon,
-			CastShadow = false,
-			Parent = carpeta,
-		})
-		local luz = Instance.new("SpotLight")
-		luz.Brightness = 3
-		luz.Range = 60
-		luz.Angle = 70
-		luz.Color = Color3.fromRGB(255, 240, 220)
-		luz.Face = Enum.NormalId.Front
-		luz.Parent = foco
-		hazDeLuz(foco, base + Vector3.new(esquina.X * -0.4, 520, esquina.Z * -0.2), Config.COLORES[(i * 2 % #Config.COLORES) + 1], carpeta)
+	-- Las pantallas van de pie en las dos islas grandes, mirando a la arena
+	local tamanos = { Vector2.new(70, 34), Vector2.new(84, 38) }
+	for i = 1, 2 do
+		local isla = ISLAS_ESTADIO[i]
+		local tamano = tamanos[i]
+		local centro = isla.centro + Vector3.new(0, 7 + tamano.Y / 2, 0)
+		local mirar = CFrame.lookAt(centro, Vector3.new(A.X, centro.Y, A.Z))
+		pantalla(if i == 1 then "PantallaEste" else "PantallaNorte", mirar, tamano, isla.centro.Y, carpeta)
 	end
-
-	-- Pantallas gigantes
-	pantalla("PantallaEste", CFrame.lookAt(A + Vector3.new(150, 45, 0), A + Vector3.new(0, 45, 0)), Vector2.new(70, 34), carpeta)
-	pantalla("PantallaNorte", CFrame.lookAt(A + Vector3.new(0, 80, 235), A + Vector3.new(0, 80, 0)), Vector2.new(84, 38), carpeta)
-
 	carpeta.Parent = workspace
 end
 
@@ -6990,8 +6884,20 @@ end
 
 local Lobby = {}
 local L = Config.LOBBY
+-- Colores del lobby: suaves y que combinan entre sí
+local PALETA = {
+	Color3.fromRGB(255, 128, 110), -- coral
+	Color3.fromRGB(255, 192, 92), -- ámbar
+	Color3.fromRGB(110, 206, 168), -- menta
+	Color3.fromRGB(100, 168, 236), -- cielo
+	Color3.fromRGB(170, 140, 228), -- lila
+	Color3.fromRGB(246, 132, 188), -- rosa
+}
+local MADERA = Color3.fromRGB(128, 92, 64)
+local PIEDRA = Color3.fromRGB(236, 230, 218)
+local LUZ_CALIDA = Color3.fromRGB(255, 226, 160)
 local POSICIONES_VOTO = { L + Vector3.new(-20, 0, 44), L + Vector3.new(0, 0, 48), L + Vector3.new(20, 0, 44) }
-local COLORES_VOTO = { Color3.fromRGB(30, 144, 255), MORADO, Color3.fromRGB(255, 107, 203) }
+local COLORES_VOTO = { PALETA[4], PALETA[5], PALETA[6] }
 
 -- Quita el suelo gris y los puntos de aparición de la plantilla "Baseplate".
 local function limpiarPlantilla()
@@ -7014,17 +6920,15 @@ local function cartelDePie(nombre: string, posicion: Vector3, tamano: Vector2, t
 		Name = nombre,
 		Size = Vector3.new(tamano.X, tamano.Y, 1),
 		CFrame = CFrame.lookAt(posicion, Vector3.new(L.X, posicion.Y, L.Z)), -- la cara Front mira al centro
-		Color = Color3.fromRGB(28, 22, 48),
+		Color = Color3.fromRGB(30, 36, 62),
 		Parent = padre,
 	})
-	-- Marco de neón
 	C.Parte({
 		Name = "Marco",
-		Size = Vector3.new(tamano.X + 1.2, tamano.Y + 1.2, 0.6),
+		Size = Vector3.new(tamano.X + 1.6, tamano.Y + 1.6, 0.6),
 		CFrame = tablero.CFrame * CFrame.new(0, 0, 0.4),
-		Color = color,
-		Material = Enum.Material.SmoothPlastic,
-		CastShadow = false,
+		Color = MADERA,
+		Material = Enum.Material.Wood,
 		Parent = padre,
 	})
 	for _, lado in { -1, 1 } do
@@ -7032,7 +6936,8 @@ local function cartelDePie(nombre: string, posicion: Vector3, tamano: Vector2, t
 			Name = "Pata",
 			Size = Vector3.new(1.2, posicion.Y - L.Y, 1.2),
 			CFrame = tablero.CFrame * CFrame.new(lado * tamano.X * 0.35, -(posicion.Y - L.Y) / 2, 0.6),
-			Color = Color3.fromRGB(60, 40, 90),
+			Color = MADERA,
+			Material = Enum.Material.Wood,
 			Parent = padre,
 		})
 	end
@@ -7100,7 +7005,7 @@ local function construirFuente(padre: Instance)
 		Parent = padre,
 	})
 	C.Disco(L + Vector3.new(0, 6, 0), 1.4, 5, { Name = "Columna", Color = Color3.fromRGB(250, 245, 255), Material = Enum.Material.Marble, Parent = padre })
-	local plato = C.Disco(L + Vector3.new(0, 6.6, 0), 3.4, 0.8, { Name = "Plato", Color = Color3.fromRGB(255, 200, 230), Material = Enum.Material.Marble, Parent = padre })
+	local plato = C.Disco(L + Vector3.new(0, 6.6, 0), 3.4, 0.8, { Name = "Plato", Color = Color3.fromRGB(250, 245, 255), Material = Enum.Material.Marble, Parent = padre })
 	local chorro = Instance.new("ParticleEmitter")
 	chorro.Name = "Chorro"
 	chorro.Color = ColorSequence.new(Color3.fromRGB(180, 240, 255), Color3.fromRGB(255, 255, 255))
@@ -7114,7 +7019,7 @@ local function construirFuente(padre: Instance)
 	chorro.LightEmission = 0.4
 	chorro.EmissionDirection = Enum.NormalId.Right -- hacia arriba (el disco está girado)
 	chorro.Parent = plato
-	C.Luz(plato, Color3.fromRGB(120, 220, 255), 2, 18)
+	C.Luz(plato, Color3.fromRGB(160, 220, 255), 1, 16)
 end
 
 -- Pista de baile circular alrededor de la fuente.
@@ -7129,11 +7034,12 @@ local function construirPistaDisco(padre: Instance)
 				Name = "Baldosa",
 				Size = Vector3.new(2 * math.pi * radio / cantidad - 0.3, 0.3, 4.6),
 				CFrame = CFrame.lookAt(posicion, Vector3.new(L.X, posicion.Y, L.Z)) * CFrame.Angles(0, math.rad(90), 0),
-				Color = Util.Elegir(Config.COLORES),
+				Color = PALETA[(i % #PALETA) + 1],
 				Material = Enum.Material.SmoothPlastic,
-				Reflectance = 0.12,
+				Reflectance = 0.1,
 				CastShadow = false,
 				Tags = { "Disco" },
+				Atributos = { Paso = i / cantidad },
 				Parent = padre,
 			})
 		end
@@ -7147,7 +7053,7 @@ local function construirPistaDisco(padre: Instance)
 		Tags = { "Girar" },
 		Parent = padre,
 	})
-	C.Luz(bola, Color3.fromRGB(255, 120, 255), 3, 40)
+	C.Luz(bola, LUZ_CALIDA, 1.5, 30)
 	C.Motor(bola, 1.5)
 end
 
@@ -7172,18 +7078,19 @@ end
 -- Cartel del título con bombillas de feria alrededor.
 local function construirTitulo(padre: Instance)
 	local cf = CFrame.new(L + Vector3.new(0, 28, -62)) * CFrame.Angles(0, math.pi, 0)
-	local tablero = C.Parte({ Name = "Titulo", Size = Vector3.new(66, 18, 2), CFrame = cf, Color = Color3.fromRGB(35, 20, 60), Parent = padre })
+	local tablero = C.Parte({ Name = "Titulo", Size = Vector3.new(66, 18, 2), CFrame = cf, Color = Color3.fromRGB(30, 36, 62), Parent = padre })
 	local titulo = C.Cartel(tablero, Enum.NormalId.Front, Config.NOMBRE, BLANCO, 20)
 	local degradado = Instance.new("UIGradient")
-	degradado.Color = arcoiris()
+	degradado.Color = ColorSequence.new(Color3.fromRGB(255, 232, 140), Color3.fromRGB(255, 150, 90))
+	degradado.Rotation = 90
 	degradado.Parent = titulo
 	C.Parte({
 		Name = "MarcoTitulo",
 		Size = Vector3.new(69, 21, 1.4),
 		CFrame = cf * CFrame.new(0, 0, 0.6),
-		Color = Color3.fromRGB(255, 107, 203),
+		Color = Color3.fromRGB(226, 176, 72),
 		Material = Enum.Material.SmoothPlastic,
-		CastShadow = false,
+		Reflectance = 0.1,
 		Parent = padre,
 	})
 	-- Bombillas que parpadean
@@ -7202,7 +7109,7 @@ local function construirTitulo(padre: Instance)
 			local local_ = lado.inicio + lado.direccion * (k * lado.largo / pasos)
 			C.Bola((cf * CFrame.new(local_.X, local_.Y, -0.6)).Position, 1.1, {
 				Name = "Bombilla",
-				Color = if indice % 2 == 0 then Color3.fromRGB(255, 240, 180) else Color3.fromRGB(255, 120, 200),
+				Color = LUZ_CALIDA,
 				Material = Enum.Material.Neon,
 				CanCollide = false,
 				CastShadow = false,
@@ -7216,22 +7123,20 @@ local function construirTitulo(padre: Instance)
 		Name = "Subtitulo",
 		Size = Vector3.new(50, 5, 1),
 		CFrame = CFrame.new(L + Vector3.new(0, 15, -61)) * CFrame.Angles(0, math.pi, 0),
-		Color = ROJO,
+		Color = PALETA[1],
 		Material = Enum.Material.SmoothPlastic,
 		Parent = padre,
 	})
 	C.Cartel(sub, Enum.NormalId.Front, `8 JUGADORES · {#MINIJUEGOS} MINIJUEGOS · 0 PIEDAD`, BLANCO, 20)
 	for _, x in { -30, 30 } do
-		local poste = C.Parte({
+		C.Parte({
 			Name = "Poste",
 			Size = Vector3.new(2.4, 38, 2.4),
 			CFrame = CFrame.new(L + Vector3.new(x, 19, -63.5)),
-			Color = Color3.fromRGB(70, 45, 110),
+			Color = Color3.fromRGB(70, 66, 82),
 			Material = Enum.Material.Metal,
 			Parent = padre,
 		})
-		-- Focos que apuntan al cielo
-		hazDeLuz(poste, L + Vector3.new(x * 2.2, 320, -110), if x < 0 then CIAN else Color3.fromRGB(255, 107, 203), padre)
 	end
 end
 
@@ -7239,15 +7144,15 @@ end
 local function construirArcoiris(padre: Instance)
 	local centro = L + Vector3.new(0, 0, 46)
 	local colores = {
-		Color3.fromRGB(255, 70, 90),
-		Color3.fromRGB(255, 150, 50),
-		Color3.fromRGB(255, 225, 70),
-		Color3.fromRGB(80, 220, 120),
-		Color3.fromRGB(60, 170, 255),
-		Color3.fromRGB(130, 100, 255),
-		Color3.fromRGB(210, 110, 255),
+		Color3.fromRGB(242, 96, 96),
+		Color3.fromRGB(250, 160, 80),
+		Color3.fromRGB(250, 214, 96),
+		Color3.fromRGB(122, 200, 120),
+		Color3.fromRGB(96, 164, 230),
+		Color3.fromRGB(132, 120, 220),
+		Color3.fromRGB(186, 132, 220),
 	}
-	local segmentos = 18
+	local segmentos = 28
 	for b, color in colores do
 		local radio = 36 - (b - 1) * 1.7
 		for i = 1, segmentos do
@@ -7296,39 +7201,60 @@ local function construirFarolas(padre: Instance)
 	local cantidad = 8
 	local radio = 74
 	local cimas = {}
+	local hierro = Color3.fromRGB(52, 50, 60)
 	for i = 1, cantidad do
 		local angulo = math.rad((i - 1) * 45 + 22.5)
 		local base = L + Vector3.new(math.cos(angulo) * radio, 0, math.sin(angulo) * radio)
+		C.Disco(base + Vector3.new(0, 0.8, 0), 1.1, 0.8, { Name = "PieFarola", Color = hierro, Material = Enum.Material.Metal, Parent = padre })
 		C.Parte({
 			Name = "Farola",
 			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(13, 1, 1),
+			Size = Vector3.new(12, 0.6, 0.6),
 			CFrame = CFrame.new(base + Vector3.new(0, 6.5, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-			Color = Color3.fromRGB(60, 45, 90),
+			Color = hierro,
 			Material = Enum.Material.Metal,
 			Parent = padre,
 		})
-		local bombilla = C.Bola(base + Vector3.new(0, 13.6, 0), 2.6, {
+		-- Farolillo: cristal con una bombilla cálida y un tejadito
+		C.Parte({
+			Name = "Farolillo",
+			Size = Vector3.new(1.8, 2.2, 1.8),
+			CFrame = CFrame.new(base + Vector3.new(0, 13.6, 0)),
+			Color = Color3.fromRGB(255, 244, 220),
+			Material = Enum.Material.Glass,
+			Transparency = 0.5,
+			CanCollide = false,
+			Parent = padre,
+		})
+		local bombilla = C.Bola(base + Vector3.new(0, 13.5, 0), 1.1, {
 			Name = "LuzFarola",
-			Color = Config.COLORES[i],
+			Color = LUZ_CALIDA,
 			Material = Enum.Material.Neon,
 			CanCollide = false,
 			CastShadow = false,
 			Parent = padre,
 		})
-		C.Luz(bombilla, Config.COLORES[i], 1.6, 22)
-		table.insert(cimas, base + Vector3.new(0, 12.8, 0))
+		C.Luz(bombilla, LUZ_CALIDA, 1.2, 20)
+		C.Parte({
+			Name = "TejadoFarol",
+			Size = Vector3.new(2.6, 0.5, 2.6),
+			CFrame = CFrame.new(base + Vector3.new(0, 14.95, 0)),
+			Color = hierro,
+			Material = Enum.Material.Metal,
+			Parent = padre,
+		})
+		table.insert(cimas, base + Vector3.new(0, 12.4, 0))
 	end
+	-- Guirnaldas de bombillitas cálidas entre farolas
 	for i = 1, cantidad do
 		local a, b = cimas[i], cimas[(i % cantidad) + 1]
-		local puntos = 9
+		local puntos = 11
 		for k = 1, puntos do
 			local t = k / (puntos + 1)
-			local caida = 4 * t * (1 - t) * 5 -- la guirnalda cuelga
-			local posicion = a:Lerp(b, t) - Vector3.new(0, caida, 0)
-			C.Bola(posicion, 0.9, {
+			local caida = 4 * t * (1 - t) * 4 -- la guirnalda cuelga
+			C.Bola(a:Lerp(b, t) - Vector3.new(0, caida, 0), 0.6, {
 				Name = "Guirnalda",
-				Color = Config.COLORES[((i + k) % #Config.COLORES) + 1],
+				Color = LUZ_CALIDA,
 				Material = Enum.Material.Neon,
 				CanCollide = false,
 				CanQuery = false,
@@ -7402,27 +7328,31 @@ local function construirVegetacion(padre: Instance)
 		end
 	end
 
-	local colores = { Color3.fromRGB(255, 90, 140), Color3.fromRGB(255, 220, 80), Color3.fromRGB(180, 120, 255), Color3.fromRGB(255, 255, 255), Color3.fromRGB(255, 150, 60) }
-	local ramos = 0
+	-- Arbustos (algunos con flores de un solo color)
+	local flores = { BLANCO, Color3.fromRGB(255, 196, 210), Color3.fromRGB(255, 220, 120) }
+	local arbustos = 0
 	for _ = 1, 600 do
-		if ramos >= 34 then
+		if arbustos >= 22 then
 			break
 		end
 		local punto = Util.PuntoEnCirculo(L, 75)
 		if sitioLibre(punto, 2.5) then
-			ramos += 1
+			arbustos += 1
 			ocupar(punto, 2.5)
-			local color = colores[(ramos % #colores) + 1]
-			for _ = 1, 5 do
-				local flor = punto + Vector3.new(math.random(-20, 20) / 10, 0.3, math.random(-20, 20) / 10)
-				C.Bola(flor, 0.8, {
-					Name = "Flor",
-					Color = color,
-					CanCollide = false,
-					CanQuery = false,
-					CastShadow = false,
-					Parent = padre,
-				})
+			Paisaje.Arbusto(punto, padre)
+			if arbustos % 2 == 0 then
+				local color = flores[(arbustos // 2 % #flores) + 1]
+				for k = 1, 4 do
+					local a = k / 4 * math.pi * 2 + arbustos
+					C.Bola(punto + Vector3.new(math.cos(a) * 1.1, 2.5, math.sin(a) * 1.1), 0.6, {
+						Name = "Flor",
+						Color = color,
+						CanCollide = false,
+						CanQuery = false,
+						CastShadow = false,
+						Parent = padre,
+					})
+				end
 			end
 		end
 	end
@@ -7435,7 +7365,7 @@ local function construirVegetacion(padre: Instance)
 			local arriba = base + Vector3.new(math.random(-15, 15) / 10, 10 + k * 1.1, math.random(-15, 15) / 10)
 			C.Bola(arriba, 2.6, {
 				Name = "Globo",
-				Color = Config.COLORES[((i * 5 + k) % #Config.COLORES) + 1],
+				Color = PALETA[((i * 5 + k) % #PALETA) + 1],
 				Material = Enum.Material.SmoothPlastic,
 				Reflectance = 0.15,
 				CanCollide = false,
@@ -7462,74 +7392,31 @@ local function construirCascadas(padre: Instance)
 		local angulo = math.rad(i * 90 + 45)
 		local d = Vector3.new(math.cos(angulo), 0, math.sin(angulo))
 		local estanque = L + d * 67
-		for k = 1, 9 do
-			local a = k / 9 * math.pi * 2
-			C.Bola(estanque + Vector3.new(math.cos(a) * 7.6, 0, math.sin(a) * 7.6), 1.8 + (k % 3) * 0.5, {
+		for k = 1, 10 do
+			local a = k / 10 * math.pi * 2
+			C.Bola(estanque + Vector3.new(math.cos(a) * 7.6, 0, math.sin(a) * 7.6), 1.6 + (k % 3) * 0.6, {
 				Name = "Piedra",
-				Color = Color3.fromRGB(200, 190, 215),
+				Color = Color3.fromRGB(168, 164, 158),
 				Material = Enum.Material.Slate,
 				CanCollide = false,
 				Parent = padre,
 			})
 		end
-		-- Arroyo hasta el borde
+		-- Arroyo hasta el borde y cascada al mar
 		local desde, hasta = L + d * 74, L + d * 85
 		C.Parte({
 			Name = "Arroyo",
 			Size = Vector3.new(4, 0.3, (hasta - desde).Magnitude),
 			CFrame = CFrame.lookAt((desde + hasta) / 2 - Vector3.new(0, 0.25, 0), hasta - Vector3.new(0, 0.25, 0)),
-			Color = Color3.fromRGB(110, 225, 255),
+			Color = Color3.fromRGB(120, 196, 226),
 			Material = Enum.Material.Glass,
-			Transparency = 0.25,
+			Transparency = 0.3,
 			CanCollide = false,
 			CanQuery = false,
 			CastShadow = false,
 			Parent = padre,
 		})
-		local borde = L + d * 85.5 - Vector3.new(0, 0.4, 0)
-		local cascada = C.Parte({
-			Name = "Cascada",
-			Size = Vector3.new(4.5, 1, 1),
-			CFrame = CFrame.lookAt(borde, borde + d),
-			Transparency = 1,
-			CanCollide = false,
-			CanQuery = false,
-			CanTouch = false,
-			Parent = padre,
-		})
-		local arriba = Instance.new("Attachment")
-		arriba.Parent = cascada
-		local abajo = Instance.new("Attachment")
-		abajo.Position = Vector3.new(0, -60, -3)
-		abajo.Parent = cascada
-		local agua = Instance.new("Beam")
-		agua.Name = "Agua"
-		agua.Attachment0 = arriba
-		agua.Attachment1 = abajo
-		agua.Color = ColorSequence.new(Color3.fromRGB(150, 235, 255), BLANCO)
-		agua.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.15),
-			NumberSequenceKeypoint.new(0.6, 0.45),
-			NumberSequenceKeypoint.new(1, 1),
-		})
-		agua.LightEmission = 0.4
-		agua.Width0 = 4.5
-		agua.Width1 = 9
-		agua.FaceCamera = true
-		agua.Segments = 6
-		agua.TextureSpeed = 2
-		agua.Parent = cascada
-		local espuma = Instance.new("ParticleEmitter")
-		espuma.Color = ColorSequence.new(BLANCO)
-		espuma.Size = NumberSequence.new(1.5, 4)
-		espuma.Transparency = NumberSequence.new(0.4, 1)
-		espuma.Lifetime = NumberRange.new(1.5, 2.5)
-		espuma.Speed = NumberRange.new(4, 8)
-		espuma.SpreadAngle = Vector2.new(25, 25)
-		espuma.Acceleration = Vector3.new(0, -25, 0)
-		espuma.Rate = 20
-		espuma.EmissionDirection = Enum.NormalId.Front
-		espuma.Parent = cascada
+		Paisaje.Cascada(L + d * 85.5 - Vector3.new(0, 0.4, 0), d, 60, 4.5, padre)
 	end
 end
 
@@ -7572,9 +7459,14 @@ function Lobby.Construir()
 	carpeta.Name = "Lobby"
 	ocuparZonasFijas()
 
-	-- Plaza central de piedra clarita con borde arcoíris
-	C.Disco(L, 31, 2, { Name = "Plaza", Color = Color3.fromRGB(248, 232, 240), Material = Enum.Material.Pavement, Parent = carpeta })
-	anillo("BordePlaza", CFrame.new(L + Vector3.new(0, 0.05, 0)), 31, 48, 0.5, carpeta, 0)
+	-- Plaza central de piedra clarita con bordillo
+	C.Disco(L, 31, 2, { Name = "Plaza", Color = PIEDRA, Material = Enum.Material.Pavement, Parent = carpeta })
+	C.Disco(L - Vector3.new(0, 0.6, 0), 32.2, 1.6, {
+		Name = "BordePlaza",
+		Color = Color3.fromRGB(200, 192, 180),
+		Material = Enum.Material.Slate,
+		Parent = carpeta,
+	})
 
 	-- 8 puntos de aparición de colores
 	for i = 1, 8 do
@@ -7604,7 +7496,7 @@ function Lobby.Construir()
 		L + Vector3.new(-52, 9, -22),
 		Vector2.new(26, 16),
 		"¿CÓMO SE JUEGA?\n\n🗳️ Vota el minijuego pisando una plataforma\n🎰 La ruleta elige un MODO LOCO\n🏃 ¡Sobrevive, empuja y corre!\n🏆 Ganas puntos según tu puesto\n👑 Tras 6 rondas: ¡CAMPEÓN!",
-		Color3.fromRGB(255, 221, 89),
+		Color3.fromRGB(255, 220, 130),
 		carpeta
 	)
 	cartelDePie(
@@ -7612,7 +7504,7 @@ function Lobby.Construir()
 		L + Vector3.new(52, 9, -22),
 		Vector2.new(26, 16),
 		"TRUCOS\n\n🦘 Trampolines rosas: ¡a volar!\n🚀 Cañón: lleva a la isla secreta\n🔨 Martillo: haz clic para empujar\n❓ Cajas: poderes sorpresa\n🔴 El botón rojo... NO LO PULSES",
-		CIAN,
+		Color3.fromRGB(150, 225, 235),
 		carpeta
 	)
 
@@ -7676,22 +7568,22 @@ function Lobby.Construir()
 	for i = 0, 3 do
 		local angulo = math.rad(i * 90 + 45)
 		local centro = L + Vector3.new(math.cos(angulo) * 52, 0, math.sin(angulo) * 52)
-		C.Disco(centro + Vector3.new(0, 1, 0), 6, 1, { Name = "BordeTrampolin", Color = Color3.fromRGB(40, 35, 60), Material = Enum.Material.Metal, Parent = carpeta })
+		C.Disco(centro + Vector3.new(0, 1, 0), 6, 1, { Name = "BordeTrampolin", Color = Color3.fromRGB(64, 62, 76), Material = Enum.Material.Metal, Parent = carpeta })
 		for k = 1, 6 do
 			local a = k / 6 * math.pi * 2
 			C.Parte({
 				Name = "Muelle",
 				Size = Vector3.new(0.6, 1, 0.6),
 				CFrame = CFrame.new(centro + Vector3.new(math.cos(a) * 5.4, 0.5, math.sin(a) * 5.4)),
-				Color = Color3.fromRGB(255, 221, 89),
-				Material = Enum.Material.Neon,
+				Color = Color3.fromRGB(190, 190, 200),
+				Material = Enum.Material.Metal,
 				CastShadow = false,
 				Parent = carpeta,
 			})
 		end
 		local cama = C.Disco(centro + Vector3.new(0, 1.25, 0), 5, 0.4, {
 			Name = "Trampolin",
-			Color = Color3.fromRGB(255, 107, 203),
+			Color = PALETA[6],
 			Material = Enum.Material.SmoothPlastic,
 			Tags = { "Impulso" },
 			Atributos = { Impulso = Vector3.new(0, 150, 0) },
@@ -7767,25 +7659,6 @@ function Lobby.Construir()
 	construirVegetacion(carpeta)
 	construirCascadas(carpeta)
 	construirLuciernagas(carpeta)
-
-	-- Dados gigantes flotando y girando
-	for i = 1, 6 do
-		local angulo = math.rad(i * 60 + 15)
-		local radio = 40 + (i % 2) * 15
-		local dado = C.Parte({
-			Name = "DadoLoco",
-			Size = Vector3.new(5, 5, 5),
-			CFrame = CFrame.new(L + Vector3.new(math.cos(angulo) * radio, 24 + (i % 3) * 6, math.sin(angulo) * radio))
-				* CFrame.Angles(math.rad(45), math.rad(i * 20), 0),
-			Color = Config.COLORES[(i % #Config.COLORES) + 1],
-			Material = Enum.Material.SmoothPlastic,
-			CanCollide = false,
-			CastShadow = false,
-			Tags = { "Girar" },
-			Parent = carpeta,
-		})
-		C.Motor(dado, 0.6 + i * 0.15)
-	end
 
 	carpeta.Parent = workspace
 end
@@ -7904,22 +7777,26 @@ function Lobby.Conectar()
 		end
 	end
 
-	-- Pista de baile: cambia de color al ritmo.
+	-- Pista de baile: los colores van girando poco a poco alrededor de la fuente.
 	task.spawn(function()
+		local giro = 0
 		while true do
+			giro += 1
 			for _, baldosa in CollectionService:GetTagged("Disco") do
-				if baldosa:IsA("BasePart") then
-					baldosa.Color = Util.Elegir(Config.COLORES)
+				local paso = baldosa:GetAttribute("Paso")
+				if baldosa:IsA("BasePart") and type(paso) == "number" then
+					local indice = math.floor(paso * #PALETA * 2 + giro / 2) % #PALETA + 1
+					poner(baldosa, "Color", PALETA[indice])
 				end
 			end
-			task.wait(0.45)
+			task.wait(0.5)
 		end
 	end)
 
 	-- Bombillas del cartel: se encienden y apagan por turnos, como en una feria.
 	task.spawn(function()
-		local encendido = { Color3.fromRGB(255, 240, 180), Color3.fromRGB(255, 120, 200) }
-		local apagado = { Color3.fromRGB(110, 90, 70), Color3.fromRGB(110, 50, 90) }
+		local encendido = { LUZ_CALIDA, LUZ_CALIDA }
+		local apagado = { Color3.fromRGB(150, 120, 80), Color3.fromRGB(150, 120, 80) }
 		local turno = 0
 		while true do
 			turno = 1 - turno
@@ -8032,9 +7909,8 @@ function Grada.Construir()
 			Name = "Suelo",
 			Size = Vector3.new(24, 2, LARGO_GRADA),
 			CFrame = CFrame.new(P - Vector3.new(0, 1, 0)),
-			Color = Color3.fromRGB(60, 60, 90),
-			Material = Enum.Material.Glass,
-			Transparency = 0.25,
+			Color = Color3.fromRGB(168, 122, 82),
+			Material = Enum.Material.WoodPlanks,
 			Parent = carpeta,
 		})
 		-- Barandilla de cristal mirando a la arena (+X)
@@ -8520,4 +8396,5 @@ Jugadores.Iniciar()
 UI.IniciarConsejos()
 Juego.Iniciar()
 
+print("💡 Consejo: en Studio, Lighting → Technology = Future hace que se vea MUCHO más bonito.")
 print(`🤪 {Config.NOMBRE} está listo: {#MINIJUEGOS} minijuegos y {#Modificadores.Lista} modos locos. ¡Que empiece la locura!`)
