@@ -1,0 +1,70 @@
+{
+  "name": "LocuraTotal",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "Compartido": {
+        "$path": "src/Compartido"
+      },
+      "Remotos": {
+        "$className": "Folder",
+        "Estado": { "$className": "RemoteEvent" },
+        "Anuncio": { "$className": "RemoteEvent" },
+        "Ruleta": { "$className": "RemoteEvent" },
+        "Feed": { "$className": "RemoteEvent" },
+        "Resultados": { "$className": "RemoteEvent" },
+        "Campeon": { "$className": "RemoteEvent" },
+        "Empujon": { "$className": "RemoteEvent" },
+        "Efecto": { "$className": "RemoteEvent" }
+      }
+    },
+
+    "ServerScriptService": {
+      "Servidor": {
+        "$path": "src/Servidor"
+      }
+    },
+
+    "StarterPlayer": {
+      "$properties": {
+        "CharacterUseJumpPower": true,
+        "CharacterJumpPower": 50,
+        "CharacterWalkSpeed": 16
+      },
+      "StarterPlayerScripts": {
+        "Cliente": {
+          "$path": "src/Cliente"
+        }
+      }
+    },
+
+    "Players": {
+      "$properties": {
+        "CharacterAutoLoads": false
+      }
+    },
+
+    "Lighting": {
+      "$properties": {
+        "ClockTime": 14.5,
+        "Brightness": 2.5,
+        "GlobalShadows": true,
+        "Ambient": [0.35, 0.35, 0.4],
+        "OutdoorAmbient": [0.55, 0.55, 0.6]
+      }
+    },
+
+    "SoundService": {
+      "$properties": {
+        "RespectFilteringEnabled": true
+      }
+    },
+
+    "Workspace": {
+      "$properties": {
+        "Gravity": 196.2
+      }
+    }
+  }
+}
